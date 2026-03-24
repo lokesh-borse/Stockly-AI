@@ -1,0 +1,391 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   GLOBAL STYLES — Indian Stock Portfolio Platform
+   Dark Terminal Theme | Bloomberg-inspired
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── FONT IMPORTS ─────────────────────────────────────────────────────────── */
+/* JetBrains Mono — for all price/number displays (monospaced, precise) */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
+/* Inter — modern humanist sans for UI text, labels, headings */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── CSS CUSTOM PROPERTIES ────────────────────────────────────────────────── */
+:root {
+  /* Brand — Electric Blue / Cyan */
+  --brand-50:  #f0f9ff;
+  --brand-100: #e0f2fe;
+  --brand-200: #bae6fd;
+  --brand-300: #7dd3fc;
+  --brand-400: #38bdf8;
+  --brand-500: #0EA5E9;  /* primary accent */
+  --brand-600: #0284c7;
+  --brand-700: #0369a1;
+  --brand-800: #075985;
+  --brand-900: #0c4a6e;
+
+  /* Surface — dark card system */
+  --surface-700: #1E2530;
+  --surface-800: #151C26;
+  --surface-900: #0D1117;
+  --surface-950: #080C12;
+
+  /* Background */
+  --bg-900: #0A0F1A;
+  --bg-950: #070B14;
+
+  /* Gain / Loss — financial semantics (NEVER swap these) */
+  --gain: #22C55E;
+  --gain-muted: rgba(34, 197, 94, 0.15);
+  --gain-border: rgba(34, 197, 94, 0.3);
+  --loss: #EF4444;
+  --loss-muted: rgba(239, 68, 68, 0.15);
+  --loss-border: rgba(239, 68, 68, 0.3);
+
+  /* Text hierarchy (no pure white — preserves dark-mode contrast ratios) */
+  --text-primary:   #e2e8f0;  /* neutral-200 — headings, main values */
+  --text-secondary: #cbd5e1;  /* neutral-300 — body text */
+  --text-muted:     #94a3b8;  /* neutral-400 — labels, metadata */
+  --text-faint:     #64748b;  /* neutral-500 — placeholder, disabled */
+
+  /* Border tokens */
+  --border-default: #1E2530;  /* surface-700 — card borders */
+  --border-subtle:  rgba(255, 255, 255, 0.04); /* ultra-subtle separators */
+  --border-brand:   rgba(14, 165, 233, 0.25);
+
+  /* Amber */
+  --amber: #F59E0B;
+  --amber-muted: rgba(245, 158, 11, 0.15);
+
+  /* Scrollbar */
+  --scrollbar-thumb: #1E2530;
+  --scrollbar-track: #0D1117;
+
+  /* Transitions */
+  --transition-fast:   150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow:   400ms ease;
+}
+
+/* ── BASE RESET & DARK FOUNDATION ─────────────────────────────────────────── */
+html {
+  /* Root page background — matches bg-950 */
+  background: #070B14;
+  scroll-behavior: smooth;
+  /* Prevent layout shift from scrollbar */
+  scrollbar-gutter: stable;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: #070B14;    /* bg-950 */
+  color: var(--text-secondary); /* neutral-300 — default text */
+  min-height: 100vh;
+  line-height: 1.5;
+  font-size: 0.875rem;          /* 14px — compact terminal density */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Prevent text fouc on dark bg */
+  text-rendering: optimizeLegibility;
+}
+
+/* ── CUSTOM SCROLLBAR (dark terminal style) ───────────────────────────────── */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155; /* neutral-700 */
+}
+
+/* ── SELECTION ────────────────────────────────────────────────────────────── */
+::selection {
+  background: rgba(14, 165, 233, 0.25);
+  color: #e2e8f0;
+}
+
+/* ── FOCUS RING ───────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── ANCHOR ───────────────────────────────────────────────────────────────── */
+a {
+  color: var(--brand-400);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--brand-300);
+}
+
+/* ── TYPOGRAPHY UTILITIES ─────────────────────────────────────────────────── */
+/* All monetary values / prices MUST use this class */
+.font-price {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Heading styles */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ── COMPONENT LAYER ──────────────────────────────────────────────────────── */
+@layer components {
+  /* Dark card — base card style */
+  .card {
+    @apply bg-surface-900 border border-surface-700 rounded-card shadow-card;
+  }
+
+  /* Card with hover lift */
+  .card-hover {
+    @apply card transition-all duration-200
+           hover:border-brand-800 hover:shadow-card-md hover:-translate-y-px;
+  }
+
+  /* Data row — for tables and list items */
+  .data-row {
+    @apply border-b border-surface-700 transition-colors duration-150
+           hover:bg-surface-800 cursor-pointer;
+  }
+
+  /* Gain text */
+  .text-gain {
+    color: var(--gain);
+  }
+
+  /* Loss text */
+  .text-loss {
+    color: var(--loss);
+  }
+
+  /* Muted gain background pill */
+  .bg-gain-muted {
+    background: var(--gain-muted);
+    border: 1px solid var(--gain-border);
+  }
+
+  /* Muted loss background pill */
+  .bg-loss-muted {
+    background: var(--loss-muted);
+    border: 1px solid var(--loss-border);
+  }
+
+  /* Price display — monospace tabular numbers */
+  .price {
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.025em;
+  }
+
+  /* Skeleton loading shimmer */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--surface-800) 25%,
+      #1E2530 50%,
+      var(--surface-800) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+    border-radius: 4px;
+  }
+
+  /* Terminal grid background */
+  .terminal-bg {
+    background-image: var(--tw-gradient-stops, none),
+      linear-gradient(rgba(14,165,233,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(14,165,233,0.025) 1px, transparent 1px);
+    background-size: auto, 40px 40px, 40px 40px;
+  }
+
+  /* Divider */
+  .divider {
+    @apply border-t border-surface-700;
+  }
+
+  /* Status chip base */
+  .chip {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-xs text-2xs font-medium uppercase tracking-wide;
+  }
+
+  /* Brand button */
+  .btn-brand {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-card
+           bg-brand-600 hover:bg-brand-500 text-white font-medium text-sm
+           transition-all duration-200 shadow-glow-brand-sm hover:shadow-glow-brand
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500;
+  }
+
+  /* Ghost button */
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-card
+           bg-transparent border border-surface-700 hover:border-brand-700
+           text-neutral-300 hover:text-neutral-200 font-medium text-sm
+           transition-all duration-200;
+  }
+
+  /* Input field */
+  .input-dark {
+    @apply w-full px-3 py-2 rounded-card bg-surface-800 border border-surface-700
+           text-neutral-200 placeholder-neutral-500 text-sm font-sans
+           focus:outline-none focus:border-brand-600 focus:ring-1 focus:ring-brand-600
+           transition-colors duration-150;
+  }
+}
+
+/* ── UTILITY LAYER ────────────────────────────────────────────────────────── */
+@layer utilities {
+  /* Tabular numbers — for all financial data */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* No scrollbar (hidden but functional) */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Text truncate single line */
+  .truncate-1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Thin border top accent — used on active cards */
+  .border-t-brand {
+    border-top: 2px solid var(--brand-500);
+  }
+
+  /* Glow text animation triggers */
+  .animate-gain {
+    animation: pulse-gain 1.5s ease-in-out infinite;
+  }
+
+  .animate-loss {
+    animation: pulse-loss 1.5s ease-in-out infinite;
+  }
+
+  /* P&L flash — brief color flash when price updates */
+  .animate-flash-up {
+    animation: flash-up 0.8s ease-out forwards;
+  }
+
+  .animate-flash-down {
+    animation: flash-down 0.8s ease-out forwards;
+  }
+
+  /* For number flip precision */
+  .lining-nums {
+    font-variant-numeric: lining-nums tabular-nums;
+  }
+
+  /* Button base — all interactive buttons get this */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2
+           transition-all duration-150 active:scale-95
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500;
+  }
+
+  /* Card hover with brand glow */
+  .card-hover-glow {
+    @apply transition-shadow duration-200;
+  }
+  .card-hover-glow:hover {
+    box-shadow: 0 0 20px rgba(14,165,233,0.08), 0 4px 12px rgba(0,0,0,0.4);
+  }
+
+  /* Responsive table wrapper with thin styled scrollbar */
+  .table-scroll {
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #1E2530 transparent;
+  }
+  .table-scroll::-webkit-scrollbar {
+    height: 4px;
+  }
+  .table-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .table-scroll::-webkit-scrollbar-thumb {
+    background: #1E2530;
+    border-radius: 99px;
+  }
+  .table-scroll::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+  }
+}
+
+/* ── TICKER BAR ───────────────────────────────────────────────────────────── */
+/* Container for the scrolling market ticker strip at the top */
+.ticker-wrap {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ticker-inner {
+  display: inline-flex;
+  animation: ticker-scroll 35s linear infinite;
+}
+
+.ticker-inner:hover {
+  animation-play-state: paused;
+}
+
+/* ── RECHARTS / CHART OVERRIDES ───────────────────────────────────────────── */
+/* Make chart tooltips match the dark theme */
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: var(--surface-800) !important;
+  border: 1px solid var(--border-default) !important;
+  border-radius: 6px !important;
+  color: var(--text-secondary) !important;
+  font-family: 'Inter', sans-serif !important;
+  font-size: 12px !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+}
+
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: var(--border-default) !important;
+  stroke-opacity: 0.5 !important;
+}
+
+.recharts-text {
+  fill: var(--text-muted) !important;
+  font-family: 'Inter', sans-serif !important;
+  font-size: 11px !important;
+}
+
+/* ── PRINT STYLES ─────────────────────────────────────────────────────────── */
+@media print {
+  body {
+    background: white;
+    color: black;
+  }
+}

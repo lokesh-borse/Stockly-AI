@@ -1,0 +1,5 @@
+portfolio_id,portfolio_name,symbol,name,sector,industry,pe_ratio,market_cap,dividend_yield,quantity,purchase_price,purchase_date
+5,Automobile,BAJAJ-AUTO.NS,BAJAJ AUTO LIMITED,Consumer Cyclical,Auto Manufacturers,30.77,2729972858880.0,2.15,1,0.0,2026-03-03
+5,Automobile,BAJAJINDEF.NS,INDEF MANUFACTURING LTD,Industrials,Farm & Heavy Construction Machinery,28.17,7591360000.0,0.84,1,0.0,2026-03-03
+5,Automobile,MARUTI.NS,MARUTI SUZUKI INDIA LTD.,Consumer Cyclical,Auto Manufacturers,30.3,4523623972864.0,0.94,1,0.0,2026-03-03
+5,Automobile,TVSMOTOR.NS,TVS MOTOR COMPANY  LTD,Consumer Cyclical,Auto Manufacturers,82.64,1811070451712.0,0.26,1,0.0,2026-03-03

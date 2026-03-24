@@ -1,0 +1,69 @@
+id,content_type_id,codename,name
+1,1,add_logentry,Can add log entry
+2,1,change_logentry,Can change log entry
+3,1,delete_logentry,Can delete log entry
+4,1,view_logentry,Can view log entry
+5,3,add_permission,Can add permission
+6,3,change_permission,Can change permission
+7,3,delete_permission,Can delete permission
+8,3,view_permission,Can view permission
+9,2,add_group,Can add group
+10,2,change_group,Can change group
+11,2,delete_group,Can delete group
+12,2,view_group,Can view group
+13,4,add_user,Can add user
+14,4,change_user,Can change user
+15,4,delete_user,Can delete user
+16,4,view_user,Can view user
+17,5,add_contenttype,Can add content type
+18,5,change_contenttype,Can change content type
+19,5,delete_contenttype,Can delete content type
+20,5,view_contenttype,Can view content type
+21,6,add_session,Can add session
+22,6,change_session,Can change session
+23,6,delete_session,Can delete session
+24,6,view_session,Can view session
+25,7,add_blacklistedtoken,Can add Blacklisted Token
+26,7,change_blacklistedtoken,Can change Blacklisted Token
+27,7,delete_blacklistedtoken,Can delete Blacklisted Token
+28,7,view_blacklistedtoken,Can view Blacklisted Token
+29,8,add_outstandingtoken,Can add Outstanding Token
+30,8,change_outstandingtoken,Can change Outstanding Token
+31,8,delete_outstandingtoken,Can delete Outstanding Token
+32,8,view_outstandingtoken,Can view Outstanding Token
+33,10,add_userprofile,Can add user profile
+34,10,change_userprofile,Can change user profile
+35,10,delete_userprofile,Can delete user profile
+36,10,view_userprofile,Can view user profile
+37,9,add_passwordresetotp,Can add password reset otp
+38,9,change_passwordresetotp,Can change password reset otp
+39,9,delete_passwordresetotp,Can delete password reset otp
+40,9,view_passwordresetotp,Can view password reset otp
+41,12,add_portfolio,Can add portfolio
+42,12,change_portfolio,Can change portfolio
+43,12,delete_portfolio,Can delete portfolio
+44,12,view_portfolio,Can view portfolio
+45,14,add_portfoliostock,Can add portfolio stock
+46,14,change_portfoliostock,Can change portfolio stock
+47,14,delete_portfoliostock,Can delete portfolio stock
+48,14,view_portfoliostock,Can view portfolio stock
+49,15,add_timeseriesforecast,Can add time series forecast
+50,15,change_timeseriesforecast,Can change time series forecast
+51,15,delete_timeseriesforecast,Can delete time series forecast
+52,15,view_timeseriesforecast,Can view time series forecast
+53,11,add_growthanalysis,Can add growth analysis
+54,11,change_growthanalysis,Can change growth analysis
+55,11,delete_growthanalysis,Can delete growth analysis
+56,11,view_growthanalysis,Can view growth analysis
+57,13,add_portfoliorating,Can add portfolio rating
+58,13,change_portfoliorating,Can change portfolio rating
+59,13,delete_portfoliorating,Can delete portfolio rating
+60,13,view_portfoliorating,Can view portfolio rating
+61,16,add_stock,Can add stock
+62,16,change_stock,Can change stock
+63,16,delete_stock,Can delete stock
+64,16,view_stock,Can view stock
+65,17,add_stockprice,Can add stock price
+66,17,change_stockprice,Can change stock price
+67,17,delete_stockprice,Can delete stock price
+68,17,view_stockprice,Can view stock price

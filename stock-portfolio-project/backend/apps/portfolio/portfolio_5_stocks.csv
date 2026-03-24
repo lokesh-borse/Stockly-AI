@@ -1,0 +1,5 @@
+id,portfolio_id,portfolio_name,company_name,ticker,current_price,pe_ratio,high_52w,low_52w,intrinsic_value
+1,5,Automobile,MARUTI SUZUKI INDIA LTD.,MARUTI.NS,,30.3,17370.0,11059.45,
+2,5,Automobile,BAJAJ AUTO LIMITED,BAJAJ-AUTO.NS,,30.77,10187.0,7089.35,
+3,5,Automobile,TVS MOTOR COMPANY  LTD,TVSMOTOR.NS,,82.64,3970.0,2218.8,
+4,5,Automobile,INDEF MANUFACTURING LTD,BAJAJINDEF.NS,,28.17,580.25,199.24,
