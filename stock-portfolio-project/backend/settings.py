@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'apps.auth',
     'apps.eda',
+    'apps.ml_analytics',
     'apps.portfolio',
     'apps.stocks',
 ]

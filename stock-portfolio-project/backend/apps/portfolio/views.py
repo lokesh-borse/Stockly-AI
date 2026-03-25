@@ -18,6 +18,13 @@ except ImportError:
 from .rnn_forecast import forecast_rnn
 from apps.stocks.models import Stock
 from services.stock_service import get_stock_profile, get_history, get_live_quote
+from apps.ml_analytics.models import (
+    LinearRegressionResult,
+    LogisticRegressionResult,
+    PortfolioClusteringResult,
+    PortfolioSummaryReport,
+    PortfolioRecommendations,
+)
 
 class PortfolioViewSet(viewsets.ModelViewSet):
     serializer_class = PortfolioSerializer
@@ -124,6 +131,20 @@ class PortfolioViewSet(viewsets.ModelViewSet):
                 continue
 
             result = predict_next_close(prices=prices, symbol=holding.stock.symbol)
+            
+            # ✅ STORE IN DATABASE
+            LinearRegressionResult.objects.create(
+                portfolio=portfolio,
+                stock=holding.stock,
+                points_used=result.points_used,
+                slope=result.slope,
+                intercept=result.intercept,
+                latest_close=result.latest_close,
+                predicted_next_close=result.predicted_next_close,
+                predicted_change_percent=result.predicted_change_percent,
+                data_source=source,
+            )
+            
             predictions.append(
                 {
                     'symbol': result.symbol,
@@ -179,6 +200,18 @@ class PortfolioViewSet(viewsets.ModelViewSet):
                     }
                 )
                 continue
+
+            # ✅ STORE IN DATABASE
+            LogisticRegressionResult.objects.create(
+                portfolio=portfolio,
+                stock=holding.stock,
+                points_used=result.points_used,
+                positive_days=result.positive_days,
+                test_accuracy=result.test_accuracy,
+                probability_up_next_close=result.probability_up_next_close,
+                signal=result.signal,
+                data_source='yfinance',
+            )
 
             predictions.append(
                 {
@@ -429,12 +462,22 @@ class PortfolioViewSet(viewsets.ModelViewSet):
                 'avg_max_drawdown': round(float(np.mean([r['max_drawdown'] for r in group])), 4),
             })
 
+        # ✅ STORE IN DATABASE
+        cluster_record = PortfolioClusteringResult.objects.create(
+            portfolio=portfolio,
+            n_clusters=n_clusters,
+            clustering_data=items,
+            summary=summary,
+            pca_explained_variance=float(pca.explained_variance_ratio_.sum()),
+        )
+
         return Response({
             'portfolio_id': portfolio.id,
             'portfolio_name': portfolio.name,
             'n_clusters': n_clusters,
             'items': items,
             'summary': summary,
+            'clustering_id': cluster_record.id,
         })
 
     @action(detail=True, methods=['GET'], url_path='growth-analysis')
@@ -653,11 +696,28 @@ class PortfolioViewSet(viewsets.ModelViewSet):
         if low_risk_syms:
             lines.append(f"✅ Stable holdings anchoring your portfolio: **{', '.join(low_risk_syms)}**.")
 
+        # ✅ STORE IN DATABASE
+        best = max(rows, key=lambda r: r['ret_1y']) if rows else None
+        worst = min(rows, key=lambda r: r['ret_1y']) if rows else None
+        
+        report_record = PortfolioSummaryReport.objects.create(
+            portfolio=portfolio,
+            report_text='\n'.join(lines),
+            groups=groups,
+            positive_count=len(positive),
+            negative_count=len(negative),
+            best_stock=best['symbol'] if best else '',
+            worst_stock=worst['symbol'] if worst else '',
+            best_return_percent=best['ret_1y'] * 100 if best else None,
+            worst_return_percent=worst['ret_1y'] * 100 if worst else None,
+        )
+
         return Response({
             'portfolio_id': portfolio.id,
             'portfolio_name': portfolio.name,
             'report': '\n'.join(lines),
             'groups': groups,
+            'report_id': report_record.id,
         })
 
     @action(detail=True, methods=['GET'], url_path='recommend-stocks')
@@ -717,10 +777,19 @@ class PortfolioViewSet(viewsets.ModelViewSet):
             except Exception:
                 recommendations.append(c)
 
+        # ✅ STORE IN DATABASE
+        rec_record = PortfolioRecommendations.objects.create(
+            portfolio=portfolio,
+            reason='Sector-based peer recommendations',
+            recommendations=recommendations,
+            portfolio_sectors=sectors,
+        )
+
         return Response({
             'portfolio_id': portfolio.id,
             'portfolio_name': portfolio.name,
             'portfolio_sectors': sectors,
             'recommendations': recommendations,
+            'recommendation_id': rec_record.id,
         })
 

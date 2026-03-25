@@ -12,6 +12,7 @@ import urllib.error
 from .models import Stock, StockCatalog, StockUniverse
 from .serializers import StockSerializer, StockCatalogSerializer, StockUniverseSerializer
 from services.stock_service import get_live_quote, get_history, search_symbols, get_stock_profile
+from apps.ml_analytics.models import StockSentimentAnalysis
 
 class StockViewSet(viewsets.ModelViewSet):
     queryset = Stock.objects.all().order_by('symbol')
@@ -217,6 +218,23 @@ def stock_sentiment(request):
         overall = 'positive'
     elif neg_count > pos_count and neg_count / total > 0.4:
         overall = 'negative'
+
+    # ✅ STORE IN DATABASE
+    try:
+        stock = Stock.objects.get(symbol=symbol)
+        sentiment_score = pos_count - neg_count
+        
+        StockSentimentAnalysis.objects.create(
+            stock=stock,
+            overall_sentiment=overall.upper(),
+            positive_count=pos_count,
+            negative_count=neg_count,
+            neutral_count=neu_count,
+            sentiment_score=sentiment_score,
+            news_breakdown=sentiment_results,
+        )
+    except Stock.DoesNotExist:
+        pass  # Stock not in database, but sentiment is still returned
 
     return Response({
         'symbol': symbol,
