@@ -12,4 +12,4 @@ echo "Starting React frontend..."
 
 cd ./frontend
 npm run dev
-HOST=0.0.0.0 PORT=3000 npm start
+HOST=0.0.0.0 PORT=3000 npm start  #for vm checking
