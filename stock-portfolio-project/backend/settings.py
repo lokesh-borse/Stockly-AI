@@ -151,6 +151,8 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:5173',
     'http://localhost:5174',
     'http://127.0.0.1:5174',
+    'http://20.174.9.103',
+    'https://stockly-ai.duckdns.org',
 ]
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
@@ -163,4 +165,6 @@ CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1:5173',
     'http://localhost:5174',
     'http://127.0.0.1:5174',
+    'http://20.174.9.103',
+    'https://stockly-ai.duckdns.org',
 ]
