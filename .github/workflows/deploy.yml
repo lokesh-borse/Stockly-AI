@@ -24,6 +24,8 @@ jobs:
             echo "Pulling latest code..."
             git pull origin main
 
+            cd stock-portfolio-project
+
             echo "Activating Python environment..."
             source env/bin/activate
 
