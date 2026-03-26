@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 import math
+import re
 
 import numpy as np
 import pandas as pd
@@ -16,7 +17,7 @@ try:
 except ImportError:
     from .arima_forecast import forecast_ann as forecast_arima
 from .rnn_forecast import forecast_rnn
-from apps.stocks.models import Stock
+from apps.stocks.models import Stock, StockCatalog
 from services.stock_service import get_stock_profile, get_history, get_live_quote
 from apps.ml_analytics.models import (
     LinearRegressionResult,
@@ -722,7 +723,7 @@ class PortfolioViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['GET'], url_path='recommend-stocks')
     def recommend_stocks(self, request, pk=None):
-        """Suggest stocks from the same sectors as portfolio holdings, but NOT already in the portfolio."""
+        """Recommend top-quality stocks from one sector only (top 25%)."""
         portfolio = self.get_object()
         holdings = portfolio.holdings.select_related('stock').all()
 
@@ -730,66 +731,202 @@ class PortfolioViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'No holdings in portfolio'}, status=status.HTTP_400_BAD_REQUEST)
 
         portfolio_symbols = {h.stock.symbol for h in holdings}
-        sectors = list({h.stock.sector for h in holdings if h.stock.sector})
+        sectors = sorted({h.stock.sector for h in holdings if h.stock.sector})
 
-        # Sector → known peer symbols (curated list for NSE/BSE stocks)
-        SECTOR_PEERS = {
-            'Technology': ['TCS.NS', 'INFY.NS', 'WIPRO.NS', 'HCLTECH.NS', 'TECHM.NS', 'MPHASIS.NS', 'LTIM.NS'],
-            'Financial Services': ['HDFCBANK.NS', 'ICICIBANK.NS', 'AXISBANK.NS', 'KOTAKBANK.NS', 'SBIN.NS', 'BAJFINANCE.NS'],
-            'Consumer Goods': ['HINDUNILVR.NS', 'ITC.NS', 'NESTLEIND.NS', 'DABUR.NS', 'MARICO.NS', 'COLPAL.NS'],
-            'Automobile': ['MARUTI.NS', 'TATAMOTORS.NS', 'M&M.NS', 'BAJAJ-AUTO.NS', 'HEROMOTOCO.NS', 'EICHERMOT.NS'],
-            'Pharmaceuticals': ['SUNPHARMA.NS', 'DRREDDY.NS', 'CIPLA.NS', 'DIVISLAB.NS', 'BIOCON.NS', 'AUROPHARMA.NS'],
-            'Energy': ['RELIANCE.NS', 'ONGC.NS', 'BPCL.NS', 'IOC.NS', 'GAIL.NS', 'ADANIGREEN.NS'],
-            'Metals': ['TATASTEEL.NS', 'HINDALCO.NS', 'JSWSTEEL.NS', 'SAIL.NS', 'VEDL.NS', 'NATIONALUM.NS'],
-            'Infrastructure': ['ADANIENT.NS', 'LT.NS', 'POWERGRID.NS', 'NTPC.NS', 'BHARTIARTL.NS'],
-        }
+        requested_sector = (request.query_params.get('sector') or '').strip()
+        requested_market = (request.query_params.get('market') or '').strip()
+        focus_sector = requested_sector if requested_sector else (sectors[0] if sectors else '')
 
+        if not requested_sector:
+            desc = portfolio.description or ''
+            match = re.search(r'in sector:\s*(.*?)\s*\((.*?)\)', desc, flags=re.IGNORECASE)
+            if match:
+                focus_sector = (match.group(1) or focus_sector).strip()
+                if not requested_market:
+                    requested_market = (match.group(2) or '').strip()
+
+        if not focus_sector:
+            return Response({'detail': 'No sector available for recommendations'}, status=status.HTTP_400_BAD_REQUEST)
+
+        focus_sector_norm = focus_sector.strip().lower()
         candidates = []
-        for sector in sectors:
-            peers = SECTOR_PEERS.get(sector, [])
-            for sym in peers:
-                if sym not in portfolio_symbols:
-                    candidates.append({'symbol': sym, 'sector': sector, 'reason': f'Same sector: {sector}'})
-
-        # Deduplicate
         seen = set()
-        unique_candidates = []
-        for c in candidates:
-            if c['symbol'] not in seen:
-                seen.add(c['symbol'])
-                unique_candidates.append(c)
 
-        # Enrich with live data (limit to 8)
-        recommendations = []
-        for c in unique_candidates[:8]:
-            try:
-                profile = get_stock_profile(c['symbol']) or {}
-                quote = get_live_quote(c['symbol']) or {}
-                recommendations.append({
-                    'symbol': c['symbol'],
-                    'name': profile.get('name', c['symbol']),
-                    'sector': c['sector'],
-                    'reason': c['reason'],
-                    'current_price': quote.get('price'),
-                    'pe_ratio': profile.get('pe_ratio'),
-                    'market_cap': profile.get('market_cap'),
+        # Primary: recommend from current portfolio holdings for this same sector.
+        holding_candidates = []
+        for h in holdings:
+            stock_sector_norm = (h.stock.sector or '').strip().lower()
+            if stock_sector_norm and stock_sector_norm != focus_sector_norm:
+                continue
+            symbol = (h.stock.symbol or '').strip().upper()
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
+            holding_candidates.append({
+                'symbol': symbol,
+                'stock_name': h.stock.name,
+                'sector': h.stock.sector or focus_sector,
+                'market': requested_market,
+                'already_in_portfolio': True,
+            })
+
+        # If sector labels are missing in holdings, fallback to all holdings in that portfolio.
+        if not holding_candidates:
+            for h in holdings:
+                symbol = (h.stock.symbol or '').strip().upper()
+                if not symbol or symbol in seen:
+                    continue
+                seen.add(symbol)
+                holding_candidates.append({
+                    'symbol': symbol,
+                    'stock_name': h.stock.name,
+                    'sector': h.stock.sector or focus_sector,
+                    'market': requested_market,
+                    'already_in_portfolio': True,
                 })
-            except Exception:
-                recommendations.append(c)
 
-        # ✅ STORE IN DATABASE
+        candidates.extend(holding_candidates)
+
+        # Secondary fallback: sector catalog stocks if holdings candidate list is empty.
+        if not candidates:
+            catalog_qs = StockCatalog.objects.all()
+            if requested_market:
+                catalog_qs = catalog_qs.filter(market__iexact=requested_market)
+            for row in catalog_qs.order_by('stock_name', 'symbol'):
+                row_sector = (row.sector or '').strip().lower()
+                if row_sector != focus_sector_norm:
+                    continue
+                symbol = (row.symbol or '').strip().upper()
+                if not symbol or symbol in seen:
+                    continue
+                seen.add(symbol)
+                candidates.append({
+                    'symbol': symbol,
+                    'stock_name': row.stock_name,
+                    'sector': row.sector,
+                    'market': row.market,
+                    'already_in_portfolio': symbol in portfolio_symbols,
+                })
+
+        def _safe_float(v):
+            try:
+                n = float(v)
+            except (TypeError, ValueError):
+                return None
+            return n if math.isfinite(n) else None
+
+        def _clamp(v, lo=0.0, hi=1.0):
+            return max(lo, min(hi, v))
+
+        def _pe_score(pe):
+            if pe is None:
+                return 0.45
+            if pe <= 0:
+                return 0.20
+            if pe < 8:
+                return 0.55
+            if pe <= 35:
+                return _clamp(1 - abs(pe - 22) / 22)
+            if pe <= 65:
+                return 0.35
+            return 0.20
+
+        def _size_score(market_cap):
+            if market_cap is None or market_cap <= 0:
+                return 0.40
+            return _clamp((math.log10(market_cap) - 8.0) / 4.0)
+
+        scored = []
+        for c in candidates[:40]:
+            symbol = c['symbol']
+            profile = get_stock_profile(symbol) or {}
+            quote = get_live_quote(symbol) or {}
+            history = get_history(symbol, period='1y', interval='1d') or []
+
+            closes = []
+            for row in history:
+                close_price = _safe_float(row.get('close_price'))
+                if close_price is not None:
+                    closes.append(close_price)
+
+            one_year_return = None
+            annual_volatility = None
+            if len(closes) >= 30 and closes[0] > 0:
+                prices = np.array(closes, dtype=float)
+                one_year_return = float((prices[-1] / prices[0]) - 1)
+                returns = np.diff(prices) / prices[:-1]
+                if len(returns) > 1:
+                    annual_volatility = float(np.std(returns) * np.sqrt(252))
+
+            pe_ratio = _safe_float(profile.get('pe_ratio'))
+            market_cap = _safe_float(profile.get('market_cap'))
+            dividend_yield = _safe_float(profile.get('dividend_yield'))
+
+            return_score = _clamp(((one_year_return or 0.0) + 0.2) / 0.6)
+            volatility_score = _clamp(1 - ((annual_volatility or 0.45) / 0.65))
+            pe_score = _pe_score(pe_ratio)
+            size_score = _size_score(market_cap)
+            dividend_score = _clamp((dividend_yield or 0.0) / 4.0)
+
+            quality = (
+                0.38 * return_score +
+                0.24 * volatility_score +
+                0.18 * pe_score +
+                0.14 * size_score +
+                0.06 * dividend_score
+            )
+
+            if quality >= 0.68 and (one_year_return or 0.0) >= 0 and (annual_volatility or 0.45) <= 0.40:
+                signal = 'BUY'
+            elif quality >= 0.52:
+                signal = 'WATCH'
+            else:
+                signal = 'AVOID'
+
+            scored.append({
+                'symbol': symbol,
+                'name': profile.get('name') or c['stock_name'] or symbol,
+                'sector': c['sector'] or focus_sector,
+                'market': c['market'] or requested_market,
+                'already_in_portfolio': bool(c.get('already_in_portfolio')),
+                'current_price': _safe_float(quote.get('price')),
+                'pe_ratio': pe_ratio,
+                'market_cap': market_cap,
+                'dividend_yield': dividend_yield,
+                'one_year_return_pct': round((one_year_return or 0.0) * 100, 2),
+                'annual_volatility_pct': round((annual_volatility or 0.0) * 100, 2),
+                'quality_score': round(quality * 100, 2),
+                'signal': signal,
+                'worth_buy': signal == 'BUY',
+            })
+
+        scored.sort(key=lambda x: (x['one_year_return_pct'], x['quality_score']), reverse=True)
+        top_count = min(3, len(scored))
+        recommendations = []
+        for item in scored[:top_count]:
+            recommendations.append({
+                **item,
+                'reason': (
+                    f"Top return pick in {focus_sector}. "
+                    f"1Y return {item['one_year_return_pct']:.2f}% and score {item['quality_score']:.2f}/100."
+                ),
+            })
+
         rec_record = PortfolioRecommendations.objects.create(
             portfolio=portfolio,
-            reason='Sector-based peer recommendations',
+            reason=f'Sector quality recommendations for {focus_sector}',
             recommendations=recommendations,
-            portfolio_sectors=sectors,
+            portfolio_sectors=[focus_sector],
         )
 
         return Response({
             'portfolio_id': portfolio.id,
             'portfolio_name': portfolio.name,
-            'portfolio_sectors': sectors,
+            'portfolio_sectors': [focus_sector],
+            'focus_sector': focus_sector,
+            'market': requested_market,
+            'candidate_count': len(candidates),
+            'selected_count': len(recommendations),
             'recommendations': recommendations,
             'recommendation_id': rec_record.id,
         })
-

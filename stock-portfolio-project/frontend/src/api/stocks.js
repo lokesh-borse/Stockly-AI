@@ -74,8 +74,8 @@ export async function fetchSummaryReport(portfolioId) {
   return res.data
 }
 
-export async function fetchRecommendStocks(portfolioId) {
-  const res = await api.get(`portfolio/${portfolioId}/recommend-stocks/`, { timeout: 60000 })
+export async function fetchRecommendStocks(portfolioId, params = {}) {
+  const res = await api.get(`portfolio/${portfolioId}/recommend-stocks/`, { params, timeout: 60000 })
   return res.data
 }
 
