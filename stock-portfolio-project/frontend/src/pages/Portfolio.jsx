@@ -281,6 +281,9 @@ function PortfolioCard({ p, rating, onDelete, showDelete = true, viewTo = null, 
   const pnlPct = toFin(p.total_pnl_pct)
   const value  = toFin(p.total_value)
   const isGain = pnl !== null ? pnl >= 0 : true
+  const stockCount = Number.isFinite(Number(p?.stock_count))
+    ? Number(p.stock_count)
+    : Array.isArray(p?.stocks) ? p.stocks.length : 0
 
   // Fake sector segments for the mini-bar (if real sectors not provided, generate from top_sector)
   const sectors = p.sectors || (p.top_sector ? [{ name: p.top_sector, pct: 60 }, { name: 'Others', pct: 40 }] : [])
@@ -346,7 +349,7 @@ function PortfolioCard({ p, rating, onDelete, showDelete = true, viewTo = null, 
             <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round"/>
           </svg>
           <span className="text-2xs font-mono font-medium" style={{ color: '#38BDF8', fontSize: 10 }}>
-            {p.stock_count ?? 0} stocks
+            {stockCount} stocks
           </span>
         </div>
 
