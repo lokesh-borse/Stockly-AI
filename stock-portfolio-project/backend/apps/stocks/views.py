@@ -1,18 +1,42 @@
-from rest_framework import viewsets, status
+﻿from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.response import Response
 from django.db.models import Q
 from django.db.utils import OperationalError, ProgrammingError
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
+from django.core.cache import cache
+from django.conf import settings
 from collections import defaultdict
 import csv
-import urllib.request
-import urllib.error
+import json
+from decimal import Decimal
 from .models import Stock, StockCatalog, StockUniverse
 from .serializers import StockSerializer, StockCatalogSerializer, StockUniverseSerializer
 from services.stock_service import get_live_quote, get_history, search_symbols, get_stock_profile
 from apps.ml_analytics.models import StockSentimentAnalysis
+from apps.portfolio.models import Portfolio, PortfolioStock
+
+
+class ChatProviderError(Exception):
+    def __init__(self, message, status_code=502):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _normalize_model_text(content):
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get('type') == 'text' and isinstance(item.get('text'), str):
+                parts.append(item['text'])
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(p for p in parts if p).strip()
+    return ""
+
 
 class StockViewSet(viewsets.ModelViewSet):
     queryset = Stock.objects.all().order_by('symbol')
@@ -139,9 +163,8 @@ def stock_universe(request):
     })
 
 
-# â”€â”€â”€ SENTIMENT ANALYSIS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── SENTIMENT ANALYSIS ──────────────────────────────────────────────────────
 
-# Simple keyword-based polarity sentiment (no external NLP library)
 POSITIVE_WORDS = {
     'rise', 'rises', 'rising', 'gain', 'gains', 'profit', 'profits', 'growth', 'surge',
     'surges', 'rally', 'rallies', 'beat', 'beats', 'outperform', 'upgrade', 'buy',
@@ -168,7 +191,6 @@ def _score_text(text):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def stock_sentiment(request):
-    """Keyword-based sentiment from stock news via yfinance."""
     symbol = request.query_params.get('symbol')
     if not symbol:
         return Response({'detail': 'symbol required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -219,11 +241,9 @@ def stock_sentiment(request):
     elif neg_count > pos_count and neg_count / total > 0.4:
         overall = 'negative'
 
-    # ✅ STORE IN DATABASE
     try:
         stock = Stock.objects.get(symbol=symbol)
         sentiment_score = pos_count - neg_count
-        
         StockSentimentAnalysis.objects.create(
             stock=stock,
             overall_sentiment=overall.upper(),
@@ -234,7 +254,7 @@ def stock_sentiment(request):
             news_breakdown=sentiment_results,
         )
     except Stock.DoesNotExist:
-        pass  # Stock not in database, but sentiment is still returned
+        pass
 
     return Response({
         'symbol': symbol,
@@ -246,12 +266,11 @@ def stock_sentiment(request):
     })
 
 
-# â”€â”€â”€ 5-YEAR PERFORMANCE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── 5-YEAR PERFORMANCE ──────────────────────────────────────────────────────
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def stock_performance_5y(request):
-    """Returns monthly close prices for the last 5 years for charting."""
     symbol = request.query_params.get('symbol')
     if not symbol:
         return Response({'detail': 'symbol required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -279,12 +298,11 @@ def stock_performance_5y(request):
     })
 
 
-# â”€â”€â”€ DOWNLOAD STOCK SUMMARY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── DOWNLOAD STOCK SUMMARY ──────────────────────────────────────────────────
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def stock_summary_download(request):
-    """Download a CSV summary of a stock's key metrics."""
     symbol = request.query_params.get('symbol')
     if not symbol:
         return Response({'detail': 'symbol required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -325,79 +343,362 @@ def stock_summary_download(request):
     return response
 
 
-# â”€â”€â”€ GEMINI AI PROXY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─── CHATBOT ─────────────────────────────────────────────────────────────────
+
+GUEST_SYSTEM_PROMPT = (
+    "You are Stockly Assistant, an expert stock market advisor. "
+    "You help users understand stocks, market trends, SIPs, mutual funds, and investing basics. "
+    "Answer in a friendly and concise manner. "
+    "Use Indian market context - NSE, BSE, and INR currency. "
+    "You do NOT have access to this user's personal portfolio. "
+    "They are browsing as a guest. "
+    "When asked about their portfolio or personal holdings, politely tell them to log in for personalized insights. "
+    "Never make definitive buy or sell recommendations. "
+    "Always remind users to consult a SEBI-registered financial advisor."
+)
+
+
+def _sse_chunk(text):
+    # IMPORTANT: must use real newlines, not escaped \\n
+    return "data: " + json.dumps({"text": text}) + "\n\n"
+
+
+def _sse_done():
+    # IMPORTANT: must use real newlines, not escaped \\n
+    return "data: [DONE]\n\n"
+
+
+def _client_ip(request):
+    forwarded = (request.META.get('HTTP_X_FORWARDED_FOR') or '').split(',')[0].strip()
+    return forwarded or request.META.get('REMOTE_ADDR', 'unknown')
+
+
+def _check_rate_limit(request):
+    if request.user.is_authenticated:
+        limit = 60
+        key = f"chat_rate:user:{request.user.id}"
+    else:
+        limit = 20
+        key = f"chat_rate:ip:{_client_ip(request)}"
+
+    count = cache.get(key)
+    if count is None:
+        cache.set(key, 1, timeout=60)
+        return True, None
+    if count >= limit:
+        return False, limit
+    try:
+        cache.incr(key)
+    except ValueError:
+        cache.set(key, count + 1, timeout=60)
+    return True, None
+
+
+def _dec(v):
+    if v is None:
+        return Decimal('0')
+    if isinstance(v, Decimal):
+        return v
+    return Decimal(str(v))
+
+
+def _fmt_inr(v):
+    return f"INR {_dec(v):,.2f}"
+
+
+def _latest_price_for_holding(holding):
+    quote = get_live_quote(holding.stock.symbol) or {}
+    live_price = quote.get('price')
+    if live_price is not None:
+        return _dec(live_price)
+
+    latest_stored = holding.stock.prices.order_by('-date').first()
+    if latest_stored:
+        return _dec(latest_stored.close_price)
+    return _dec(holding.purchase_price)
+
+
+def _build_personalized_prompt(user):
+    # Exclude recommended/template portfolios — their names end with
+    # "(indian stock)" or "(global stock)". Only show user-created portfolios.
+    TEMPLATE_SUFFIXES = ('(indian stock)', '(global stock)', '(us stock)')
+
+    user_portfolios = Portfolio.objects.filter(user=user)
+    real_portfolios = [
+        p for p in user_portfolios
+        if not any(p.name.lower().endswith(s) for s in TEMPLATE_SUFFIXES)
+    ]
+    real_portfolio_ids = [p.id for p in real_portfolios]
+
+    holdings_qs = (
+        PortfolioStock.objects
+        .filter(portfolio__id__in=real_portfolio_ids)
+        .select_related('portfolio', 'stock')
+        .prefetch_related('stock__prices')
+        .order_by('portfolio__name', 'stock__symbol')
+    )
+    # Cap at 15 holdings — real portfolios will be small
+    holdings = list(holdings_qs[:15])
+
+    header_portfolios = ", ".join(p.name for p in real_portfolios[:5]) if real_portfolios else "None"
+
+    # Keep prompt short — every token counts on free tier
+    lines = [
+        "You are Stockly Assistant, a concise personal stock advisor.",
+        "Use NSE/BSE and INR. No definitive buy/sell calls.",
+        "End each reply with: Informational only, not financial advice.",
+        f"Portfolios: {header_portfolios}.",
+    ]
+
+    if not holdings:
+        lines.append("User has no holdings yet. Help them build a starter portfolio.")
+    else:
+        lines.append("Holdings (up to 10):")
+        total_value = Decimal('0')
+        total_cost = Decimal('0')
+        for h in holdings:
+            qty = _dec(h.quantity)
+            avg_buy = _dec(h.purchase_price)
+            current = _latest_price_for_holding(h)
+            value = qty * current
+            cost = qty * avg_buy
+            pnl = value - cost
+            pnl_pct = (pnl / cost * Decimal('100')) if cost > 0 else Decimal('0')
+            total_value += value
+            total_cost += cost
+            # Compact format saves ~50% tokens vs verbose format
+            lines.append(
+                f"{h.stock.symbol}: {int(qty)}qty "
+                f"avg=INR{avg_buy:.0f} cur=INR{current:.0f} "
+                f"PnL=INR{pnl:.0f}({pnl_pct:.1f}%)"
+            )
+
+        total_pnl = total_value - total_cost
+        total_pnl_pct = (total_pnl / total_cost * Decimal('100')) if total_cost > 0 else Decimal('0')
+        lines.append(
+            f"Total: invested=INR{total_cost:.0f} "
+            f"value=INR{total_value:.0f} "
+            f"PnL=INR{total_pnl:.0f}({total_pnl_pct:.1f}%)"
+        )
+
+    # Last 3 transactions only (not 5) to save tokens
+    recent = list(holdings_qs.order_by('-purchase_date', '-id')[:3])
+    if recent:
+        lines.append("Recent trades:")
+        for item in recent:
+            date_text = str(item.purchase_date)[:10] if item.purchase_date else "N/A"
+            lines.append(
+                f"{date_text}: {item.stock.symbol} "
+                f"x{item.quantity} @INR{_dec(item.purchase_price):.0f}"
+            )
+
+    return "\n".join(lines)
+
+
+def _sanitize_messages(raw_messages):
+    cleaned = []
+    if not isinstance(raw_messages, list):
+        return cleaned
+    for item in raw_messages:
+        if not isinstance(item, dict):
+            continue
+        role = item.get('role')
+        content = item.get('content')
+        if role not in {'user', 'assistant', 'system'}:
+            continue
+        if not isinstance(content, str):
+            continue
+        text = content.strip()
+        if not text:
+            continue
+        cleaned.append({'role': role, 'content': text})
+    return cleaned
+
+
+
+def _trim_messages_for_groq(messages):
+    """Keep system prompt + last 6 turns to stay under 6000 TPM free tier limit."""
+    system_msgs = [m for m in messages if m.get('role') == 'system']
+    conv_msgs   = [m for m in messages if m.get('role') != 'system']
+    return system_msgs + (conv_msgs[-6:] if len(conv_msgs) > 6 else conv_msgs)
+
+
+def _call_groq(messages):
+    try:
+        from groq import Groq
+    except ImportError as exc:
+        raise ChatProviderError(f"Groq package not installed. Run: pip install groq. Error: {exc}", status_code=503)
+
+    groq_key = getattr(settings, 'GROQ_API_KEY', None)
+    if not groq_key:
+        raise ChatProviderError("GROQ_API_KEY not set in settings.", status_code=503)
+
+    client = Groq(api_key=groq_key)
+    trimmed = _trim_messages_for_groq(messages)
+    try:
+        completion = client.chat.completions.create(
+            model='llama-3.1-8b-instant',
+            messages=trimmed,
+            temperature=0.4,
+            max_tokens=600,   # short responses stay under free TPM limit
+        )
+        text = _normalize_model_text(completion.choices[0].message.content)
+        if not text:
+            raise ChatProviderError("Groq returned an empty response.", status_code=502)
+        return text
+    except ChatProviderError:
+        raise
+    except Exception as exc:
+        raise ChatProviderError(f"Groq error: {str(exc)}", status_code=502)
+
+
+
+def _call_openrouter(messages):
+    import requests as req
+
+    or_key = getattr(settings, 'OPENROUTER_API_KEY', None)
+    if not or_key:
+        raise ChatProviderError("OPENROUTER_API_KEY not set in settings.", status_code=503)
+
+    headers = {
+        'Authorization': f"Bearer {or_key}",
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'http://localhost:5173',
+        'X-Title': 'Stockly-AI',
+    }
+
+    # Use free-tier models — no billing required
+    # These slugs are verified active on OpenRouter as of 2025
+    free_models = [
+        'meta-llama/llama-3.1-8b-instruct:free',
+        'meta-llama/llama-3-8b-instruct:free',
+        'google/gemma-3-4b-it:free',
+        'microsoft/phi-3-mini-128k-instruct:free',
+    ]
+
+    last_error = "No models tried."
+    for model in free_models:
+        payload = {
+            'model': model,
+            'messages': messages,
+            'temperature': 0.4,
+            'max_tokens': 1024,
+        }
+        try:
+            response = req.post(
+                'https://openrouter.ai/api/v1/chat/completions',
+                headers=headers,
+                json=payload,
+                timeout=60,
+            )
+            if response.status_code == 402:
+                last_error = f"402 Payment Required for {model}"
+                continue
+            if response.status_code >= 400:
+                last_error = f"HTTP {response.status_code} for {model}: {response.text[:200]}"
+                continue
+
+            data = response.json()
+            raw_content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+            text = _normalize_model_text(raw_content)
+            if not text:
+                last_error = f"Empty response from {model}"
+                continue
+            return text
+
+        except Exception as exc:
+            last_error = f"Exception for {model}: {str(exc)}"
+            continue
+
+    raise ChatProviderError(
+        f"All OpenRouter models failed. Last error: {last_error}",
+        status_code=502,
+    )
+
+
+def _generate_reply(messages):
+    errors = []
+
+    groq_key = getattr(settings, 'GROQ_API_KEY', None)
+    if groq_key:
+        try:
+            return _call_groq(messages)
+        except ChatProviderError as exc:
+            errors.append(f"Groq: {str(exc)}")
+    else:
+        errors.append("Groq: GROQ_API_KEY not configured.")
+
+    or_key = getattr(settings, 'OPENROUTER_API_KEY', None)
+    if or_key:
+        try:
+            return _call_openrouter(messages)
+        except ChatProviderError as exc:
+            errors.append(f"OpenRouter: {str(exc)}")
+    else:
+        errors.append("OpenRouter: OPENROUTER_API_KEY not configured.")
+
+    raise ChatProviderError(" | ".join(errors), status_code=503)
+
+
+def _tokenize_for_streaming(text):
+    if not text:
+        return []
+    tokens = []
+    current = []
+    for ch in text:
+        current.append(ch)
+        if ch in {' ', '\n', '\t'}:
+            tokens.append(''.join(current))
+            current = []
+    if current:
+        tokens.append(''.join(current))
+    return tokens
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-def gemini_proxy(request):
-    """
-    Proxy POST /api/stocks/gemini/ â†’ Gemini REST API.
-    Body: { "contents": [...], "system_prompt": "..." }
-    Returns: { "reply": "..." }
-    """
-    import urllib.request
-    import json as _json
-    from django.conf import settings as _settings
+def chat_stream(request):
+    allowed, limit = _check_rate_limit(request)
+    if not allowed:
+        return Response(
+            {'detail': f'Rate limit exceeded. Limit: {limit} requests per minute.'},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
 
-    api_key = getattr(_settings, 'GEMINI_API_KEY', '')
-    model_name = getattr(_settings, 'GEMINI_MODEL', 'gemini-2.5-flash')
-    if not api_key:
-        return Response({'detail': 'Gemini API key not configured on server.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    raw_messages = request.data.get('messages', [])
+    messages = _sanitize_messages(raw_messages)
+    if not messages:
+        return Response({'detail': 'messages must be a non-empty list.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    contents = request.data.get('contents', [])
-    system_prompt = request.data.get('system_prompt', '')
+    if request.user.is_authenticated:
+        system_prompt = _build_personalized_prompt(request.user)
+    else:
+        system_prompt = GUEST_SYSTEM_PROMPT
 
-    payload = {'contents': contents}
-    if system_prompt:
-        payload['system_instruction'] = {'parts': [{'text': system_prompt}]}
+    model_messages = [{'role': 'system', 'content': system_prompt}] + messages
 
-    url = f'https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}'
+    groq_key = getattr(settings, 'GROQ_API_KEY', None)
+    or_key = getattr(settings, 'OPENROUTER_API_KEY', None)
+    if not groq_key and not or_key:
+        return Response(
+            {'detail': 'At least one chat provider key (GROQ_API_KEY or OPENROUTER_API_KEY) must be configured.'},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     try:
-        req = urllib.request.Request(
-            url,
-            data=_json.dumps(payload).encode('utf-8'),
-            headers={'Content-Type': 'application/json'},
-            method='POST',
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = _json.loads(resp.read().decode('utf-8'))
+        reply_text = _generate_reply(model_messages)
+    except ChatProviderError as exc:
+        code = exc.status_code if exc.status_code else status.HTTP_502_BAD_GATEWAY
+        return Response({'detail': f'Chat provider error: {str(exc)}'}, status=code)
+    except Exception as exc:
+        return Response({'detail': f'Chat provider error: {str(exc)}'}, status=status.HTTP_502_BAD_GATEWAY)
 
-        reply = (
-            data.get('candidates', [{}])[0]
-            .get('content', {})
-            .get('parts', [{}])[0]
-            .get('text', '')
-        )
-        if not reply:
-            return Response({'detail': 'Empty Gemini response', 'raw': data}, status=status.HTTP_502_BAD_GATEWAY)
+    def event_stream():
+        for token in _tokenize_for_streaming(reply_text):
+            yield _sse_chunk(token)
+        yield _sse_done()
 
-        return Response({'reply': reply})
-
-    except urllib.error.HTTPError as e:
-        body = e.read().decode('utf-8', errors='replace')
-        if e.code == 429:
-            retry_after = e.headers.get('Retry-After')
-            payload = {
-                'detail': 'Gemini rate limit hit. Please retry after a short delay.',
-                'error': body,
-            }
-            if retry_after:
-                payload['retry_after_seconds'] = retry_after
-            return Response(
-                payload,
-                status=status.HTTP_429_TOO_MANY_REQUESTS
-            )
-        if e.code == 403:
-            return Response(
-                {
-                    'detail': 'Gemini request forbidden (HTTP 403). Check GEMINI_API_KEY, ensure Generative Language API is enabled, and verify API key restrictions/billing in Google AI Studio/Cloud.',
-                    'error': body,
-                },
-                status=status.HTTP_502_BAD_GATEWAY
-            )
-        return Response({'detail': f'Gemini error (HTTP {e.code})', 'error': body}, status=status.HTTP_502_BAD_GATEWAY)
-    except Exception as e:
-        return Response({'detail': str(e)}, status=status.HTTP_502_BAD_GATEWAY)
-
-
+    streaming_response = StreamingHttpResponse(event_stream(), content_type='text/event-stream')
+    streaming_response['Cache-Control'] = 'no-cache'
+    streaming_response['X-Accel-Buffering'] = 'no'
+    return streaming_response

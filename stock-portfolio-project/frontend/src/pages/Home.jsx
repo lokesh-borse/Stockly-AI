@@ -1,63 +1,39 @@
-import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
-import api from '../api/axios.js'
 
-// ── Inline CSS (keyframes + ticker) ──────────────────────────────────────────
 const STYLES = `
-  @keyframes ticker-scroll {
-    from { transform: translateX(0); }
-    to   { transform: translateX(-50%); }
-  }
   @keyframes fade-up {
-    from { opacity:0; transform:translateY(24px); }
-    to   { opacity:1; transform:translateY(0); }
-  }
-  @keyframes float {
-    0%,100% { transform: translateY(0px); }
-    50%      { transform: translateY(-10px); }
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
   }
   @keyframes blink-dot {
-    0%,100% { opacity:1; } 50% { opacity:0.2; }
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.2; }
   }
-  @keyframes price-flash-green {
-    0%   { background:rgba(34,197,94,0.25); }
-    100% { background:transparent; }
-  }
-  @keyframes price-flash-red {
-    0%   { background:rgba(239,68,68,0.25); }
-    100% { background:transparent; }
+  @keyframes ticker-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
   }
   @keyframes scroll-prices {
     from { transform: translateY(0); }
-    to   { transform: translateY(-50%); }
+    to { transform: translateY(-50%); }
   }
   @keyframes grid-pulse {
-    0%,100% { opacity:0.03; }
-    50%      { opacity:0.07; }
+    0%,100% { opacity: 0.03; }
+    50% { opacity: 0.07; }
   }
   @keyframes shimmer-text {
-    0%   { background-position: -200% center; }
-    100% { background-position:  200% center; }
+    0% { background-position: -200% center; }
+    100% { background-position: 200% center; }
   }
   @keyframes glow-pulse {
     0%,100% { box-shadow: 0 0 0 0 rgba(14,165,233,0); }
-    50%      { box-shadow: 0 0 30px 4px rgba(14,165,233,0.18); }
+    50% { box-shadow: 0 0 30px 4px rgba(14,165,233,0.18); }
   }
-
   .ticker-inner { animation: ticker-scroll 28s linear infinite; }
   .ticker-inner:hover { animation-play-state: paused; }
-
-  .float-card   { animation: float 4s ease-in-out infinite; }
-  .dot-blink    { animation: blink-dot 1.4s ease-in-out infinite; }
-
-  .fade-up-1    { animation: fade-up 0.6s ease-out 0.1s both; }
-  .fade-up-2    { animation: fade-up 0.6s ease-out 0.25s both; }
-  .fade-up-3    { animation: fade-up 0.6s ease-out 0.4s both; }
-  .fade-up-4    { animation: fade-up 0.6s ease-out 0.55s both; }
-
-  .mock-prices  { animation: scroll-prices 7s linear infinite; }
-
+  .dot-blink { animation: blink-dot 1.4s ease-in-out infinite; }
+  .mock-prices { animation: scroll-prices 7s linear infinite; }
   .grid-bg {
     background-image:
       linear-gradient(rgba(14,165,233,0.05) 1px, transparent 1px),
@@ -65,7 +41,6 @@ const STYLES = `
     background-size: 44px 44px;
     animation: grid-pulse 4s ease-in-out infinite;
   }
-
   .shimmer-brand {
     background: linear-gradient(90deg,#38BDF8,#0EA5E9,#818CF8,#38BDF8);
     background-size: 200% auto;
@@ -74,9 +49,7 @@ const STYLES = `
     -webkit-text-fill-color: transparent;
     animation: shimmer-text 3s linear infinite;
   }
-
   .btn-glow { animation: glow-pulse 2.5s ease-in-out infinite; }
-
   .feature-card {
     transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   }
@@ -85,301 +58,10 @@ const STYLES = `
     border-color: rgba(14,165,233,0.4);
     box-shadow: 0 8px 32px rgba(14,165,233,0.1);
   }
-
-  .step-card {
-    transition: transform 0.2s ease;
-  }
+  .step-card { transition: transform 0.2s ease; }
   .step-card:hover { transform: translateY(-4px); }
-
-  .chat-slide-up {
-    animation: fade-up 0.25s ease-out both;
-  }
 `
-
-// ── Gemini backend proxy helper ─────────────────────────────────────────────────────
-// Calls our Django backend which securely holds the Gemini API key
-async function callGeminiProxy(contents, systemPrompt) {
-  const res = await api.post('stocks/gemini/', {
-    contents,
-    system_prompt: systemPrompt,
-  })
-  return res.data.reply
-}
-
-const BASE_SYSTEM_PROMPT = `You are an expert AI Stock Market Assistant embedded in a stock portfolio management app focused on Indian (NSE/BSE) and global (US) markets.
-
-You have deep knowledge of the following:
-
-INDIAN STOCKS (NSE): Search and analyze via live market endpoints.
-
-GLOBAL STOCKS (US): Search and analyze via live market endpoints.
-
-CRYPTO: BTC-USD, ETH-USD, BNB-USD, SOL-USD, XRP-USD, ADA-USD, DOGE-USD, DOT-USD, MATIC-USD, LTC-USD, TRX-USD, AVAX-USD, SHIB-USD, LINK-USD, ATOM-USD, XLM-USD, ETC-USD, ICP-USD, FIL-USD, APT-USD
-
-APP FEATURES:
-- Portfolio creation and management (add/remove stocks)
-- ML models: Linear Regression (next-day price prediction), Logistic Regression (UP/DOWN direction), ARIMA/LSTM time-series forecast (1d/7d), K-Means portfolio clustering (High/Medium/Low risk), Growth Analysis (3-month return, volatility, Sharpe Ratio), Portfolio Star Rating (1-5), Summary Report, Stock Recommendations
-- EDA tools: Gold/Silver correlation analysis, Nifty 50 clustering
-- Auth: JWT login, MPIN, Telegram OTP for password reset
-
-STRICT RULES:
-1. Only answer finance, stock market, investing, and app-related questions
-2. If asked anything unrelated (coding help, general knowledge, jokes etc.), politely decline and redirect to finance topics
-3. Always be concise — max 4-5 sentences unless a detailed comparison is requested
-4. For "best stock" or "buy recommendation" questions, give a balanced answer with 2-3 options across sectors and always add a risk disclaimer
-5. For app feature questions, explain the relevant ML model or feature clearly
-6. Use Indian Rupee (₹) for NSE/BSE stocks and USD ($) for US stocks
-7. Format responses cleanly — use bullet points for lists, bold for stock symbols, and keep it conversational
-8. Never make absolute buy/sell guarantees — always recommend consulting a SEBI registered financial advisor for actual investment decisions`
-
-// ── Simple markdown renderer ──────────────────────────────────────────────────
-function renderMarkdown(text) {
-  const lines = text.split('\n')
-  const elements = []
-  let key = 0
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    if (!line.trim()) { elements.push(<div key={key++} style={{ height: 6 }} />); continue }
-
-    // Bold entire line
-    if (line.startsWith('**') && line.endsWith('**') && line.length > 4) {
-      elements.push(<p key={key++} style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 12, margin: '4px 0' }}>{line.slice(2, -2)}</p>)
-      continue
-    }
-    // Bullet
-    if (line.startsWith('- ') || line.startsWith('• ')) {
-      const content = line.slice(2)
-      elements.push(
-        <div key={key++} style={{ display: 'flex', gap: 6, fontSize: 12, color: '#cbd5e1', margin: '2px 0' }}>
-          <span style={{ color: '#38bdf8', flexShrink: 0 }}>·</span>
-          <span dangerouslySetInnerHTML={{ __html: content.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#e2e8f0">$1</strong>') }} />
-        </div>
-      )
-      continue
-    }
-    // Regular line with inline bold
-    elements.push(
-      <p key={key++} style={{ fontSize: 12, color: '#cbd5e1', margin: '2px 0', lineHeight: 1.6 }}
-        dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#e2e8f0">$1</strong>') }} />
-    )
-  }
-  return elements
-}
-
-// ── Voice recognition ─────────────────────────────────────────────────────────
-function useSpeechRecognition(onResult) {
-  const recognitionRef = useRef(null)
-  const [listening, setListening] = useState(false)
-  const supported = typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
-
-  function startListening() {
-    if (!supported) return
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    const rec = new SR()
-    rec.lang = 'en-IN'; rec.interimResults = false
-    rec.onresult = e => { onResult(e.results[0][0].transcript); setListening(false) }
-    rec.onerror = () => setListening(false)
-    rec.onend   = () => setListening(false)
-    recognitionRef.current = rec; rec.start(); setListening(true)
-  }
-  return { startListening, listening, supported }
-}
-
-// ── Typing indicator ──────────────────────────────────────────────────────────
-function TypingDots() {
-  return (
-    <div style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '8px 12px', background: '#1E2530', border: '1px solid #1E2530', borderRadius: 12, borderBottomLeftRadius: 4, width: 'fit-content' }}>
-      {[0, 1, 2].map(i => (
-        <span key={i} style={{
-          width: 6, height: 6, borderRadius: '50%', background: '#38bdf8',
-          animation: `blink-dot 1.4s ease-in-out ${i * 0.2}s infinite`
-        }} />
-      ))}
-    </div>
-  )
-}
-
-// ── Chatbot Widget ─────────────────────────────────────────────────────────────
-function ChatbotWidget() {
-  const [open, setOpen] = useState(false)
-  const [messages, setMessages] = useState([
-    { role: 'bot', text: '👋 Hi! I\'m your AI Stock Assistant powered by Gemini.\n\nAsk me about:\n• Market Analysis & Stock Picks\n• ARIMA / RNN Price Forecasts\n• Portfolio Risk & Clustering\n• Mutual Funds & ETFs\n• App Features & How-To' }
-  ])
-  const [input, setInput] = useState('')
-  const [typing, setTyping] = useState(false)
-  const systemPrompt = BASE_SYSTEM_PROMPT
-  // Gemini conversation history: [{role:'user',parts:[{text}]},{role:'model',parts:[{text}]}]
-  const [history, setHistory] = useState([])
-  const bottomRef = useRef(null)
-  const { startListening, listening, supported } = useSpeechRecognition(text => setInput(text))
-
-  useEffect(() => {
-    if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, open, typing])
-
-  async function sendMessage(text) {
-    const trimmed = text.trim()
-    if (!trimmed || typing) return
-    setInput('')
-
-    // Add user message to display
-    setMessages(prev => [...prev, { role: 'user', text: trimmed }])
-
-    // Build new history entry
-    const newUserTurn = { role: 'user', parts: [{ text: trimmed }] }
-    const updatedHistory = [...history, newUserTurn]
-
-    // Cap at last 10 exchanges (20 turns)
-    const cappedHistory = updatedHistory.slice(-20)
-
-    setTyping(true)
-
-    try {
-      const reply = await callGeminiProxy(cappedHistory, systemPrompt)
-      const newModelTurn = { role: 'model', parts: [{ text: reply }] }
-      setHistory([...cappedHistory, newModelTurn])
-      setMessages(prev => [...prev, { role: 'bot', text: reply }])
-    } catch (err) {
-      console.error('Chatbot error:', err)
-      const status = err?.response?.status
-      const detail = err?.response?.data?.detail || ''
-      const backendError = err?.response?.data?.error || ''
-      const retryAfter = err?.response?.data?.retry_after_seconds || ''
-      let msg
-      if (status === 429) {
-        const parsedRetry = parseInt(String(retryAfter), 10)
-        const waitHint = Number.isFinite(parsedRetry) && parsedRetry > 0
-          ? `Please wait ~${parsedRetry} seconds and try again.`
-          : 'Please wait 1-2 minutes and try again.'
-        const parsed429Msg = (() => {
-          try {
-            const parsed = JSON.parse(backendError)
-            return parsed?.error?.message || parsed?.message || ''
-          } catch (_) {
-            return ''
-          }
-        })()
-        msg = parsed429Msg
-          ? `Rate limit reached.\n${parsed429Msg}`
-          : `${detail || 'Rate limit reached.'} ${waitHint}`
-      } else if (detail) {
-        const rawLine = String(backendError).split('\n').map(s => s.trim()).find(Boolean) || ''
-        let hint = rawLine
-        try {
-          const parsed = JSON.parse(backendError)
-          const parsedMsg = parsed?.error?.message || parsed?.message || ''
-          if (parsedMsg) hint = parsedMsg
-        } catch (_) {
-          // Non-JSON backend error body; keep first-line fallback.
-        }
-        msg = hint ? `Error: ${detail}\n${hint}` : `Error: ${detail}`
-      } else {
-        msg = 'Unable to reach AI. Please try again.'
-      }
-      setMessages(prev => [...prev, { role: 'bot', text: msg, isError: true }])
-    } finally {
-      setTyping(false)
-    }
-  }
-
-  return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
-      {open && (
-        <div className="mb-4 w-[340px] max-h-[520px] flex flex-col rounded-2xl overflow-hidden chat-slide-up"
-             style={{ background: '#0D1117', border: '1px solid #1E2530', boxShadow: '0 24px 64px rgba(0,0,0,0.8), 0 0 0 1px rgba(14,165,233,0.1)' }}>
-          {/* Header */}
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-700"
-               style={{ background: 'linear-gradient(135deg,#0c4a6e,#0369a1)' }}>
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg"
-                 style={{ background: 'rgba(255,255,255,0.12)' }}>🤖</div>
-            <div>
-              <div className="text-sm font-bold text-white">AI Stock Assistant</div>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 dot-blink" />
-                <span className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>Powered by Gemini · Finance topics only</span>
-              </div>
-            </div>
-            <button onClick={() => setOpen(false)} className="ml-auto text-white/50 hover:text-white transition-colors text-xl leading-none">✕</button>
-          </div>
-
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-3" style={{ background: '#080C12' }}>
-            {messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[88%] rounded-xl px-3 py-2 ${m.role === 'user' ? 'rounded-br-none' : 'rounded-bl-none'}`}
-                  style={m.role === 'user'
-                    ? { background: 'linear-gradient(135deg,#0369a1,#0EA5E9)', color: '#fff' }
-                    : { background: m.isError ? 'rgba(239,68,68,0.08)' : '#1E2530', border: m.isError ? '1px solid rgba(239,68,68,0.3)' : '1px solid #1E2530' }}>
-                  {m.role === 'user'
-                    ? <span style={{ fontSize: 12, lineHeight: 1.6 }}>{m.text}</span>
-                    : <div>{renderMarkdown(m.text)}</div>
-                  }
-                </div>
-              </div>
-            ))}
-            {typing && (
-              <div className="flex justify-start">
-                <TypingDots />
-              </div>
-            )}
-            <div ref={bottomRef} />
-          </div>
-
-          {/* Input */}
-          <div className="border-t px-3 py-2.5 flex items-center gap-2"
-               style={{ borderColor: '#1E2530', background: '#0D1117' }}>
-            <input
-              className="flex-1 text-xs rounded-xl px-3 py-2 focus:outline-none transition-colors"
-              style={{ background: '#151C26', border: '1px solid #1E2530', color: '#e2e8f0' }}
-              placeholder="Ask about stocks, risk, funds..."
-              value={input}
-              disabled={typing}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input) } }}
-            />
-            {supported && (
-              <button onClick={startListening} title="Voice input"
-                className="w-8 h-8 rounded-xl flex items-center justify-center transition-colors text-sm"
-                style={listening
-                  ? { background: '#EF4444', color: '#fff' }
-                  : { background: '#1E2530', color: '#94a3b8' }}>
-                🎤
-              </button>
-            )}
-            <button onClick={() => sendMessage(input)} disabled={typing}
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-white transition-colors text-sm"
-              style={{ background: typing ? '#1E2530' : 'linear-gradient(135deg,#0369a1,#0EA5E9)', opacity: typing ? 0.5 : 1 }}>
-              ➤
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* FAB */}
-      <button onClick={() => setOpen(v => !v)}
-        className="w-14 h-14 rounded-2xl text-white text-2xl shadow-2xl hover:scale-110 active:scale-95 transition-transform flex items-center justify-center relative"
-        style={{ background: 'linear-gradient(135deg,#0369a1,#0EA5E9)', boxShadow: '0 8px 24px rgba(14,165,233,0.4)' }}>
-        {open ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5">
-            <path d="M18 6L6 18M6 6l12 12"/>
-          </svg>
-        ) : (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6">
-            <path d="M12 2a9 9 0 0 1 9 9c0 4.97-4.03 9-9 9a9 9 0 0 1-4.29-1.08L3 21l2.08-4.71A8.96 8.96 0 0 1 3 11a9 9 0 0 1 9-9z"/>
-            <path d="M8 11h.01M12 11h.01M16 11h.01" strokeLinecap="round"/>
-          </svg>
-        )}
-        {!open && (
-          <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-400 border-2 dot-blink"
-                style={{ borderColor: '#070B14' }} />
-        )}
-      </button>
-    </div>
-  )
-}
-
-// ── Ticker data ───────────────────────────────────────────────────────────────
+// -- Ticker data ───────────────────────────────────────────────────────────────
 const TICKERS = [
   { sym: 'RELIANCE', price: '2,947.50', chg: '+1.23%', up: true  },
   { sym: 'TCS',      price: '3,812.75', chg: '+0.87%', up: true  },
@@ -873,14 +555,7 @@ export default function Home() {
             </p>
           </div>
         </footer>
-
-        {/* ══════════════════════════════════════════════════════════════
-            CHATBOT
-        ══════════════════════════════════════════════════════════════ */}
-        <ChatbotWidget />
       </div>
     </>
   )
 }
-
-

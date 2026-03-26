@@ -20,6 +20,7 @@ import ProtectedRoute from './routes/ProtectedRoute.jsx'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { ToastProvider } from './context/ToastContext.jsx'
 import { ToastContainer } from './components/ui/Toast.jsx'
+import GlobalChatbot from './components/chat/GlobalChatbot.jsx'
 
 export default function App() {
   return (
@@ -50,6 +51,7 @@ export default function App() {
         <Route path="/admin-panel" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
         <Route path="/admin/user/:userId" element={<ProtectedRoute><AdminUserActivities /></ProtectedRoute>} />
         </Routes>
+        <GlobalChatbot />
       </AuthProvider>
     </ToastProvider>
   )

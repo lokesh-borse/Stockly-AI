@@ -44,7 +44,7 @@ const FEATURES = [
       </svg>
     ),
     title: 'AI Investment Assistant',
-    desc: 'Chat with our Gemini-powered market intelligence chatbot',
+    desc: 'Chat with our Stockly AI market intelligence assistant',
   },
   {
     icon: (

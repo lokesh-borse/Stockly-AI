@@ -9,6 +9,7 @@ scikit-learn==1.8.0
 statsmodels==0.14.6
 yfinance==1.2.0
 requests==2.32.5
+groq==0.22.0
 
 # Required for the RNN forecasting endpoint.
 tensorflow==2.20.0
