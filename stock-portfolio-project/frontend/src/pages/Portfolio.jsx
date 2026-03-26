@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
   fetchPortfolio, createPortfolio, deletePortfolio,
-  fetchPortfolioRating, verifyMpin, fetchRecommendedPortfolios,
+  fetchPortfolioRating, verifyMpin,
 } from '../api/stocks.js'
 
 // ── Inline keyframes ──────────────────────────────────────────────────────────
@@ -417,73 +417,12 @@ function SkeletonCard() {
   )
 }
 
-function splitRecommendedMarkets(markets) {
-  const allMarkets = Array.isArray(markets) ? markets : []
-  let indian = null
-  let global = null
-
-  for (const marketEntry of allMarkets) {
-    const marketName = String(marketEntry?.market || '').toLowerCase()
-    if (!indian && /(ind|india|nse|bse|\bin\b)/.test(marketName)) {
-      indian = marketEntry
-      continue
-    }
-    if (!global && /(global|us|usa|international|world)/.test(marketName)) {
-      global = marketEntry
-    }
-  }
-
-  if (!indian && allMarkets.length > 0) indian = allMarkets[0]
-  if (!global && allMarkets.length > 1) {
-    global = allMarkets.find((m) => m !== indian) || null
-  }
-
-  return { indian, global }
-}
-
-function RecommendedSectorCard({ sector }) {
-  return (
-    <div className="rounded-2xl p-4" style={{ background: '#0D1117', border: '1px solid #1E2530' }}>
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <h3 className="text-sm md:text-base font-bold" style={{ color: '#e2e8f0' }}>
-          {sector?.sector || 'Unknown Sector'}
-        </h3>
-        <span
-          className="text-2xs px-2 py-1 rounded-lg"
-          style={{ background: 'rgba(14,165,233,0.12)', border: '1px solid rgba(14,165,233,0.25)', color: '#38BDF8', fontSize: 10 }}
-        >
-          {sector?.count ?? 0} stocks
-        </span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {(sector?.stocks || []).map((stock) => (
-          <span
-            key={`${stock.symbol}-${stock.stock_name}`}
-            className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
-            style={{ background: '#151C26', border: '1px solid #1E2530', color: '#cbd5e1' }}
-          >
-            <span className="text-xs font-semibold">{stock.stock_name}</span>
-            <span className="text-2xs font-mono" style={{ color: '#64748b', fontSize: 10 }}>
-              {stock.symbol}
-            </span>
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function Portfolio() {
   const [items,       setItems]       = useState([])
   const [ratings,     setRatings]     = useState({})   // { [portfolioId]: ratingData }
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState(null)
-  const [recommendedLoading, setRecommendedLoading] = useState(true)
-  const [recommendedError,   setRecommendedError]   = useState(null)
-  const [recommendedMarkets, setRecommendedMarkets] = useState([])
-  const [dashboardTab,       setDashboardTab]       = useState('new')
-  const [recommendedTab,     setRecommendedTab]     = useState('indian')
   const [createOpen,  setCreateOpen]  = useState(false)
   const [mpinOpen,    setMpinOpen]    = useState(false)
   const [pendingDel,  setPendingDel]  = useState(null)  // portfolioId to delete
@@ -507,21 +446,8 @@ export default function Portfolio() {
     finally { setLoading(false) }
   }
 
-  async function loadRecommended() {
-    setRecommendedLoading(true); setRecommendedError(null)
-    try {
-      const data = await fetchRecommendedPortfolios()
-      setRecommendedMarkets(data?.markets || [])
-    } catch {
-      setRecommendedError('Failed to load recommended portfolios.')
-    } finally {
-      setRecommendedLoading(false)
-    }
-  }
-
   useEffect(() => {
     load()
-    loadRecommended()
   }, [])
 
   // ── Toast helper ────────────────────────────────────────────────────────────
@@ -554,30 +480,6 @@ export default function Portfolio() {
 
   // ── Totals ──────────────────────────────────────────────────────────────────
   const totalValue    = items.reduce((a, p) => a + (toFin(p.total_value) ?? 0), 0)
-  const splitMarkets = splitRecommendedMarkets(recommendedMarkets)
-  const selectedRecommendedMarket = recommendedTab === 'indian' ? splitMarkets.indian : splitMarkets.global
-  const recommendedCards = (selectedRecommendedMarket?.sectors || []).map((sectorItem, index) => {
-    const marketLabel = String(selectedRecommendedMarket?.market || recommendedTab).toLowerCase()
-    const marketParam = encodeURIComponent(String(selectedRecommendedMarket?.market || recommendedTab))
-    const sectorParam = encodeURIComponent(String(sectorItem?.sector || `sector-${index}`))
-    const stockCount = Number(sectorItem?.count || 0)
-    const stars = Math.min(5, Math.max(1, Math.ceil(stockCount / 4)))
-    return {
-      p: {
-        id: `recommended-${recommendedTab}-${index}`,
-        name: `${sectorItem?.sector || 'Unknown Sector'} (${marketLabel} stock)`,
-        description: `Recommended ${marketLabel} stock basket`,
-        total_value: null,
-        total_pnl: 0,
-        total_pnl_pct: 0,
-        stock_count: stockCount,
-        top_sector: sectorItem?.sector || '',
-        sectors: [{ name: sectorItem?.sector || 'Sector', pct: 100 }],
-      },
-      rating: { stars },
-      viewTo: `/portfolio/recommended/${marketParam}/${sectorParam}`,
-    }
-  })
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -656,29 +558,6 @@ export default function Portfolio() {
             </div>
           )}
 
-          <div className="rounded-2xl p-1.5 flex items-center gap-2 w-full md:w-fit" style={{ background: '#0D1117', border: '1px solid #1E2530' }}>
-            <button
-              onClick={() => setDashboardTab('recommended')}
-              className="px-4 py-2 rounded-xl text-xs md:text-sm font-semibold transition-all"
-              style={dashboardTab === 'recommended'
-                ? { background: 'linear-gradient(135deg,#0369a1,#0EA5E9)', color: '#fff' }
-                : { background: 'transparent', color: '#94a3b8' }}
-            >
-              Recommended Portfolios
-            </button>
-            <button
-              onClick={() => setDashboardTab('new')}
-              className="px-4 py-2 rounded-xl text-xs md:text-sm font-semibold transition-all"
-              style={dashboardTab === 'new'
-                ? { background: 'linear-gradient(135deg,#0369a1,#0EA5E9)', color: '#fff' }
-                : { background: 'transparent', color: '#94a3b8' }}
-            >
-              New Portfolios
-            </button>
-          </div>
-
-          {dashboardTab === 'new' && (
-            <>
           {/* Error */}
           {error && (
             <div className="flex items-center gap-3 px-4 py-3 rounded-xl fade-up"
@@ -708,107 +587,6 @@ export default function Portfolio() {
                   />
                 </div>
               ))}
-            </div>
-          )}
-            </>
-          )}
-
-          {dashboardTab === 'recommended' && (
-            <div className="space-y-4">
-              <div className="rounded-2xl p-4 md:p-5" style={{ background: '#0D1117', border: '1px solid #1E2530' }}>
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                  <div>
-                    <h2 className="text-base md:text-lg font-bold" style={{ color: '#e2e8f0' }}>Recommended Portfolios</h2>
-                    <p className="text-xs md:text-sm" style={{ color: '#64748b' }}>
-                      Stocks grouped by sector and market. Example: Cement and Construction Materials to ACC LTD.
-                    </p>
-                  </div>
-                  <div className="rounded-2xl p-1.5 flex items-center gap-1.5"
-                       style={{ background: 'linear-gradient(145deg,#070B14,#0B1220)', border: '1px solid #1E2530', boxShadow: 'inset 0 0 0 1px rgba(14,165,233,0.06)' }}>
-                    <button
-                      onClick={() => setRecommendedTab('indian')}
-                      className="group px-4 py-2 rounded-xl text-xs md:text-sm font-semibold transition-all duration-200 active:scale-95"
-                      style={recommendedTab === 'indian'
-                        ? {
-                          background: 'linear-gradient(135deg,#075985,#0EA5E9)',
-                          color: '#fff',
-                          boxShadow: '0 6px 20px rgba(14,165,233,0.35), inset 0 0 0 1px rgba(255,255,255,0.08)',
-                          transform: 'translateY(-1px)',
-                        }
-                        : { background: 'rgba(2,6,23,0.45)', color: '#94a3b8', border: '1px solid rgba(148,163,184,0.16)' }}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                          <path d="M12 2v20M2 8h20M2 16h20"></path>
-                          <circle cx="12" cy="12" r="10"></circle>
-                        </svg>
-                        Indian Market Portfolios
-                      </span>
-                    </button>
-                    <button
-                      onClick={() => setRecommendedTab('global')}
-                      className="group px-4 py-2 rounded-xl text-xs md:text-sm font-semibold transition-all duration-200 active:scale-95"
-                      style={recommendedTab === 'global'
-                        ? {
-                          background: 'linear-gradient(135deg,#075985,#0EA5E9)',
-                          color: '#fff',
-                          boxShadow: '0 6px 20px rgba(14,165,233,0.35), inset 0 0 0 1px rgba(255,255,255,0.08)',
-                          transform: 'translateY(-1px)',
-                        }
-                        : { background: 'rgba(2,6,23,0.45)', color: '#94a3b8', border: '1px solid rgba(148,163,184,0.16)' }}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                          <circle cx="12" cy="12" r="10"></circle>
-                          <path d="M2 12h20"></path>
-                          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-                        </svg>
-                        Global Market Portfolios
-                      </span>
-                    </button>
-                  </div>
-                </div>
-
-                {recommendedError && (
-                  <div className="flex items-center gap-3 px-4 py-3 rounded-xl mb-4"
-                       style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
-                    <span style={{ color: '#EF4444' }}>! {recommendedError}</span>
-                    <button onClick={loadRecommended} className="ml-auto text-xs font-medium" style={{ color: '#94a3b8' }}>Retry</button>
-                  </div>
-                )}
-
-                {recommendedLoading ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {[1, 2, 3, 4].map(i => <SkeletonCard key={`recommended-${i}`} />)}
-                  </div>
-                ) : !selectedRecommendedMarket ? (
-                  <div className="rounded-xl px-4 py-5 text-sm" style={{ background: '#080C12', border: '1px solid #1E2530', color: '#94a3b8' }}>
-                    No recommended portfolios found for {recommendedTab === 'indian' ? 'Indian market' : 'Global market'}.
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <h3 className="text-sm md:text-base font-semibold" style={{ color: '#cbd5e1' }}>
-                        {selectedRecommendedMarket.market} - {selectedRecommendedMarket.sector_count || 0} sectors
-                      </h3>
-                      <span className="text-xs" style={{ color: '#64748b' }}>
-                        {selectedRecommendedMarket.stock_count || 0} stocks
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {recommendedCards.map((entry) => (
-                        <PortfolioCard
-                          key={entry.p.id}
-                          p={entry.p}
-                          rating={entry.rating}
-                          showDelete={false}
-                          viewTo={entry.viewTo}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
             </div>
           )}
         </div>

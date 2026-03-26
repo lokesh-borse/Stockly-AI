@@ -5,6 +5,8 @@ import Register from './pages/Register.jsx'
 import ForgotPassword from './pages/ForgotPassword.jsx'
 import Home from './pages/Home.jsx'
 import Portfolio from './pages/Portfolio.jsx'
+import RecommendedPortfolios from './pages/RecommendedPortfolios.jsx'
+import Quality from './pages/Quality.jsx'
 import PortfolioDetail from './pages/PortfolioDetail.jsx'
 import Stocks from './pages/Stocks.jsx'
 import StockDetail from './pages/StockDetail.jsx'
@@ -37,6 +39,8 @@ export default function App() {
 
         {/* Authenticated routes */}
         <Route path="/portfolio" element={<ProtectedRoute><Portfolio /></ProtectedRoute>} />
+        <Route path="/portfolio/recommended" element={<ProtectedRoute><RecommendedPortfolios /></ProtectedRoute>} />
+        <Route path="/quality" element={<ProtectedRoute><Quality /></ProtectedRoute>} />
         <Route path="/portfolio/recommended/:market/:sector" element={<ProtectedRoute><PortfolioDetail /></ProtectedRoute>} />
         <Route path="/portfolio/:id" element={<ProtectedRoute><PortfolioDetail /></ProtectedRoute>} />
         <Route path="/stocks" element={<ProtectedRoute><Stocks /></ProtectedRoute>} />

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef, lazy, Suspense, Fragment } from 'react'
+﻿import { useEffect, useMemo, useState, useRef, lazy, Suspense, Fragment } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { LinearScale, PointElement, Tooltip, Legend, Chart as ChartJS } from 'chart.js'
 import {
@@ -9,13 +9,14 @@ import {
   removeStockFromPortfolio, searchLiveStocks,
 } from '../api/stocks.js'
 import MpinModal from '../components/MpinModal.jsx'
+import AddToPortfolioModal from '../components/stocks/AddToPortfolioModal.jsx'
 import {
   MLForecastTab, ClusterTab, GrowthTab, SummaryTab, RecommendTab,
 } from '../components/portfolio/AnalyticsTabs.jsx'
 
 ChartJS.register(LinearScale, PointElement, Tooltip, Legend)
 
-// ── Inline keyframes ──────────────────────────────────────────────────────────
+// â”€â”€ Inline keyframes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const STYLES = `
   @keyframes shimmer { from{background-position:-200% 0} to{background-position:200% 0} }
   @keyframes spin-slow { to { transform: rotate(360deg) } }
@@ -29,29 +30,29 @@ const STYLES = `
   .dot-live { animation: blink 1.2s ease-in-out infinite; }
 `
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function toFin(v) { const n = Number(v); return Number.isFinite(n) ? n : null }
 function fmtINR(v, d = 2) {
-  const n = toFin(v); if (n === null) return '—'
+  const n = toFin(v); if (n === null) return '--'
   return n.toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d })
 }
-function fmtPct(v, d = 2) { const n = toFin(v); return n === null ? '—' : `${n >= 0 ? '+' : ''}${n.toFixed(d)}%` }
+function fmtPct(v, d = 2) { const n = toFin(v); return n === null ? '--' : `${n >= 0 ? '+' : ''}${n.toFixed(d)}%` }
 
-// ── Skeleton ──────────────────────────────────────────────────────────────────
+// â”€â”€ Skeleton â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const Sk = ({ h = '14px', w = '100%', className = '' }) => (
   <span className={`block shimmer ${className}`} style={{ height: h, width: w }} />
 )
 
-// ── Star Rating ───────────────────────────────────────────────────────────────
+// â”€â”€ Star Rating â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const Stars = ({ count }) => (
   <span>
     {[1,2,3,4,5].map(i => (
-      <span key={i} style={{ color: i <= count ? '#F59E0B' : '#334155', fontSize: 14 }}>★</span>
+      <span key={i} style={{ color: i <= count ? '#F59E0B' : '#334155', fontSize: 14 }}>*</span>
     ))}
   </span>
 )
 
-// ── Sort icon ─────────────────────────────────────────────────────────────────
+// â”€â”€ Sort icon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const SortIco = ({ dir }) => (
   <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 inline ml-0.5 opacity-50">
     <path d="M8 3L5 7h6L8 3Z" opacity={dir === 'asc' ? 1 : 0.3}/>
@@ -59,7 +60,7 @@ const SortIco = ({ dir }) => (
   </svg>
 )
 
-// ── MPIN Modal (dark redesign) ────────────────────────────────────────────────
+// â”€â”€ MPIN Modal (dark redesign) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import { verifyMpin } from '../api/stocks.js'
 function DarkMpinModal({ open, title, onSuccess, onClose }) {
   const [pin, setPin] = useState('')
@@ -100,7 +101,7 @@ function DarkMpinModal({ open, title, onSuccess, onClose }) {
         style={{ boxShadow: '0 0 0 1px rgba(14,165,233,0.08), 0 24px 48px rgba(0,0,0,0.7)' }}>
         {/* Icon */}
         <div className="text-center mb-5">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-400 text-2xl mb-3">🔐</div>
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-400 text-2xl mb-3">PIN</div>
           <h2 className="text-base font-bold text-neutral-100">{title}</h2>
           <p className="text-xs text-neutral-500 mt-1">Enter your 6-digit MPIN to confirm</p>
         </div>
@@ -153,7 +154,7 @@ function DarkMpinModal({ open, title, onSuccess, onClose }) {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
                   </svg>
-                  Verifying…
+                  Verifying...
                 </span>
               ) : 'Confirm'}
             </button>
@@ -164,7 +165,7 @@ function DarkMpinModal({ open, title, onSuccess, onClose }) {
   )
 }
 
-// ── Add Stock Drawer ──────────────────────────────────────────────────────────
+// â”€â”€ Add Stock Drawer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function AddStockDrawer({ open, onClose, query, setQuery, suggestions, onAdd }) {
   return (
     <>
@@ -183,7 +184,7 @@ function AddStockDrawer({ open, onClose, query, setQuery, suggestions, onAdd }) 
           </div>
           <button onClick={onClose}
             className="w-8 h-8 rounded-lg flex items-center justify-center text-neutral-400 hover:text-neutral-200 hover:bg-surface-800 transition-colors">
-            ✕
+            x
           </button>
         </div>
 
@@ -196,7 +197,7 @@ function AddStockDrawer({ open, onClose, query, setQuery, suggestions, onAdd }) 
             </svg>
             <input
               type="text"
-              placeholder="Type company e.g. Reliance, TCS…"
+              placeholder="Type company e.g. Reliance, TCS..."
               value={query}
               onChange={e => setQuery(e.target.value)}
               autoFocus={open}
@@ -213,7 +214,7 @@ function AddStockDrawer({ open, onClose, query, setQuery, suggestions, onAdd }) 
             <div className="text-center py-8 text-neutral-500 text-xs">No results found for "{query}"</div>
           )}
           {suggestions.length === 0 && !query && (
-            <div className="text-center py-10 text-neutral-600 text-xs">Start typing to search stocks…</div>
+            <div className="text-center py-10 text-neutral-600 text-xs">Start typing to search stocks...</div>
           )}
           {suggestions.map(s => (
             <div key={s.symbol}
@@ -222,7 +223,7 @@ function AddStockDrawer({ open, onClose, query, setQuery, suggestions, onAdd }) 
                 <div className="text-sm font-semibold text-neutral-200">{s.symbol}</div>
                 <div className="text-xs text-neutral-500 truncate">{s.name}</div>
                 {s.current_price && (
-                  <div className="text-xs font-mono text-brand-400 mt-0.5">₹{parseFloat(s.current_price).toFixed(2)}</div>
+                  <div className="text-xs font-mono text-brand-400 mt-0.5">Rs{parseFloat(s.current_price).toFixed(2)}</div>
                 )}
               </div>
               <button onClick={() => onAdd(s.symbol)}
@@ -237,13 +238,13 @@ function AddStockDrawer({ open, onClose, query, setQuery, suggestions, onAdd }) 
   )
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const TABS = [
-  { id: 'lr',      label: 'ML Forecast',      icon: '📈' },
-  { id: 'cluster', label: 'Cluster Analysis',  icon: '⬡' },
-  { id: 'growth',  label: 'Growth Analysis',   icon: '📊' },
-  { id: 'summary', label: 'AI Summary',        icon: '✦' },
-  { id: 'reco',    label: 'Recommendations',   icon: '💡' },
+  { id: 'lr',      label: 'ML Forecast',      icon: '' },
+  { id: 'cluster', label: 'Cluster Analysis',  icon: '' },
+  { id: 'growth',  label: 'Growth Analysis',   icon: '' },
+  { id: 'summary', label: 'AI Summary',        icon: '' },
+  { id: 'reco',    label: 'Recommendations',   icon: '' },
 ]
 
 export default function PortfolioDetail() {
@@ -254,7 +255,7 @@ export default function PortfolioDetail() {
   const recommendedStorageKey = 'recommended_portfolio_id_map_v1'
   const recommendedMapKey = `${decodedMarket.toLowerCase()}::${decodedSector.toLowerCase()}`
 
-  // ── Core state (unchanged from original) ─────────────────────────────────
+  // â”€â”€ Core state (unchanged from original) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [portfolio,       setPortfolio]       = useState(null)
   const [query,           setQuery]           = useState('')
   const [suggestions,     setSuggestions]     = useState([])
@@ -275,8 +276,9 @@ export default function PortfolioDetail() {
   const [mpinOpen,        setMpinOpen]        = useState(false)
   const [pendingRemove,   setPendingRemove]   = useState(null)
   const [activePortfolioId, setActivePortfolioId] = useState(isRecommendedView ? null : id)
+  const [recommendModalStock, setRecommendModalStock] = useState(null)
 
-  // ── UI-only state ─────────────────────────────────────────────────────────
+  // â”€â”€ UI-only state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [drawerOpen,  setDrawerOpen]  = useState(false)
   const [activeTab,   setActiveTab]   = useState(null)   // null = collapsed
   const [sortKey,     setSortKey]     = useState('symbol')
@@ -284,7 +286,7 @@ export default function PortfolioDetail() {
   const [expandedRow, setExpandedRow] = useState(null)
   const [lastRefresh, setLastRefresh] = useState(new Date())
 
-  // ── API calls (all unchanged logic from original) ─────────────────────────
+  // â”€â”€ API calls (all unchanged logic from original) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function getRecommendedIdMap() {
     try {
       const raw = localStorage.getItem(recommendedStorageKey)
@@ -400,7 +402,7 @@ export default function PortfolioDetail() {
     loadRating(activePortfolioId)
   }, [activePortfolioId])
 
-  // ── Debounced stock search ─────────────────────────────────────────────────
+  // â”€â”€ Debounced stock search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     const t = setTimeout(async () => {
       if (!query.trim()) { setSuggestions([]); return }
@@ -410,7 +412,7 @@ export default function PortfolioDetail() {
     return () => clearTimeout(t)
   }, [query])
 
-  // ── Load live price + 52W range per stock ─────────────────────────────────
+  // â”€â”€ Load live price + 52W range per stock â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     async function loadHistory() {
       if (!portfolio?.stocks?.length) { setMetricsMap({}); return }
@@ -440,7 +442,7 @@ export default function PortfolioDetail() {
     loadHistory()
   }, [portfolio])
 
-  // ── Memoised lookups ──────────────────────────────────────────────────────
+  // â”€â”€ Memoised lookups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const lrBySymbol  = useMemo(() => Object.fromEntries((lrData?.predictions || []).map(r => [r.symbol, r])), [lrData])
   const logBySymbol = useMemo(() => Object.fromEntries((logData?.predictions || []).map(r => [r.symbol, r])), [logData])
 
@@ -462,6 +464,10 @@ export default function PortfolioDetail() {
         max365: toFin(m.max365),
         discount: last !== null && m.max365 > 0 ? ((m.max365 - last) / m.max365) * 100 : null,
         pnl, pnlPct,
+        openPrice:           toFin(lr?.open_price),
+        minPrice:            toFin(lr?.min_price),
+        maxPrice:            toFin(lr?.max_price),
+        closePrice:          toFin(lr?.close_price) ?? last,
         predictedNextClose:   toFin(lr?.predicted_next_close),
         predictedChangePct:   toFin(lr?.predicted_change_percent),
         signal: log?.signal || null,
@@ -469,7 +475,7 @@ export default function PortfolioDetail() {
     })
   }, [portfolio, metricsMap, lrBySymbol, logBySymbol])
 
-  // ── Portfolio totals ──────────────────────────────────────────────────────
+  // â”€â”€ Portfolio totals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const totals = useMemo(() => {
     const invested = holdingsRows.reduce((acc, s) => acc + (s.avg || 0) * s.qty, 0)
     const current  = holdingsRows.reduce((acc, s) => {
@@ -482,7 +488,7 @@ export default function PortfolioDetail() {
     return { invested, current, pnl, pnlPct, best }
   }, [holdingsRows])
 
-  // ── Sorted holdings ───────────────────────────────────────────────────────
+  // â”€â”€ Sorted holdings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const sortedRows = useMemo(() => {
     return [...holdingsRows].sort((a, b) => {
       const av = a[sortKey], bv = b[sortKey]
@@ -499,7 +505,7 @@ export default function PortfolioDetail() {
     setSortDir(prev => sortKey === key ? (prev === 'asc' ? 'desc' : 'asc') : 'asc')
   }
 
-  // ── Add / Remove ──────────────────────────────────────────────────────────
+  // â”€â”€ Add / Remove â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function onAdd(symbol) {
     if (!activePortfolioId) return
     try {
@@ -521,13 +527,23 @@ export default function PortfolioDetail() {
     } catch { setMessage('Remove failed') }
   }
 
-  // ── Tab toggle (lazy load) ────────────────────────────────────────────────
+  // â”€â”€ Tab toggle (lazy load) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function toggleTab(tab) {
     if (activeTab === tab) { setActiveTab(null); return }
     setActiveTab(tab)
     if (tab === 'growth'  && !growthData)   loadGrowthAnalysis(activePortfolioId)
     if (tab === 'summary' && !summaryData)  loadSummary(activePortfolioId)
     if (tab === 'reco') loadRecommend(activePortfolioId)
+  }
+
+  function onRecommendAdd(symbol) {
+    const rec = (recommendData?.recommendations || []).find((r) => r.symbol === symbol)
+    if (!rec) return
+    setRecommendModalStock({
+      symbol: rec.symbol,
+      name: rec.name || rec.symbol,
+      price: rec.current_price ?? 0,
+    })
   }
 
   async function onRefreshAll() {
@@ -537,7 +553,7 @@ export default function PortfolioDetail() {
     setLastRefresh(new Date()); setRefreshingAll(false)
   }
 
-  // ── Render states ─────────────────────────────────────────────────────────
+  // â”€â”€ Render states â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (!portfolio) {
     return (
       <div className="min-h-screen bg-[#070B14] p-6">
@@ -562,18 +578,18 @@ export default function PortfolioDetail() {
       <div className="min-h-screen bg-[#070B14] pb-24">
         <div className="max-w-[1700px] mx-auto px-4 md:px-6 py-5 space-y-5">
 
-          {/* ═══════════════════════════════════════════════════════════════
+          {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
               HEADER BAR
-          ═══════════════════════════════════════════════════════════════ */}
+          â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
           <div className="rounded-xl border border-surface-700 bg-surface-900 p-5"
             style={{ boxShadow: '0 1px 0 rgba(255,255,255,0.03) inset' }}>
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
 
-              {/* Left — name, rating, description */}
+              {/* Left â€” name, rating, description */}
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-2xs uppercase tracking-widest text-brand-500 font-medium">Portfolio</span>
-                  <span className="text-neutral-700">·</span>
+                  <span className="text-neutral-700">|</span>
                   <span className="text-2xs text-neutral-600 font-mono">#{activePortfolioId ?? id}</span>
                 </div>
                 <h1 className="text-2xl font-bold text-neutral-100 truncate">{portfolio.name}</h1>
@@ -595,15 +611,15 @@ export default function PortfolioDetail() {
                 )}
               </div>
 
-              {/* Right — Total value + P&L */}
+              {/* Right â€” Total value + P&L */}
               <div className="flex-shrink-0 text-right">
                 <div className="text-2xs uppercase tracking-widest text-neutral-500 mb-1">Total Portfolio Value</div>
                 <div className="text-3xl font-bold font-mono text-neutral-100">
-                  ₹{fmtINR(totals.current)}
+                  Rs{fmtINR(totals.current)}
                 </div>
                 <div className="flex items-center justify-end gap-2 mt-1">
                   <span className="text-base font-semibold font-mono" style={{ color: pnlColor }}>
-                    {hasGain ? '▲' : '▼'} ₹{fmtINR(Math.abs(totals.pnl))}
+                    {hasGain ? '+' : '-'} Rs{fmtINR(Math.abs(totals.pnl))}
                   </span>
                   <span className={`text-xs font-mono px-1.5 py-0.5 rounded border
                     ${hasGain ? 'text-gain-400 bg-gain-500/10 border-gain-500/25' : 'text-loss-400 bg-loss-500/10 border-loss-500/25'}`}>
@@ -611,15 +627,15 @@ export default function PortfolioDetail() {
                   </span>
                 </div>
                 <div className="text-2xs text-neutral-600 mt-2 font-mono">
-                  ⌚ {lastRefresh.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} IST
+                  Time {lastRefresh.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} IST
                 </div>
               </div>
             </div>
           </div>
 
-          {/* ═══════════════════════════════════════════════════════════════
+          {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
               QUICK STATS ROW
-          ═══════════════════════════════════════════════════════════════ */}
+          â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
             {TABS.map(tab => {
               const isActive = activeTab === tab.id
@@ -637,7 +653,7 @@ export default function PortfolioDetail() {
                     {tab.label}
                   </div>
                   <div className={`text-base font-semibold truncate ${isActive ? 'text-brand-300' : 'text-neutral-200'}`}>
-                    {tab.icon} {tab.label}
+                    {tab.label}
                   </div>
                   <div className="text-2xs text-neutral-500 mt-1">
                     Click to open analytics tab
@@ -647,9 +663,9 @@ export default function PortfolioDetail() {
             })}
           </div>
 
-          {/* ═══════════════════════════════════════════════════════════════
+          {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
               ANALYTICS TABS
-          ═══════════════════════════════════════════════════════════════ */}
+          â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
           <div className="bg-surface-900 border border-surface-700 rounded-xl overflow-hidden">
             {/* Tab bar */}
             <div className="flex overflow-x-auto border-b border-surface-700 no-scrollbar">
@@ -661,14 +677,13 @@ export default function PortfolioDetail() {
                       ${isActive
                         ? 'border-brand-500 text-brand-400 bg-brand-500/5'
                         : 'border-transparent text-neutral-500 hover:text-neutral-300 hover:bg-surface-800'}`}>
-                    <span>{tab.icon}</span>
                     {tab.label}
                   </button>
                 )
               })}
             </div>
 
-            {/* Tab content — lazy rendered with Suspense fallback */}
+            {/* Tab content â€” lazy rendered with Suspense fallback */}
             {activeTab && (
               <div className="fade-up">
                 <Suspense fallback={
@@ -678,11 +693,11 @@ export default function PortfolioDetail() {
                     ))}
                   </div>
                 }>
-                  {activeTab === 'lr'      && <MLForecastTab lrData={lrData} loading={lrLoading} />}
+                  {activeTab === 'lr'      && <MLForecastTab lrData={lrData} logData={logData} loading={lrLoading} />}
                   {activeTab === 'cluster' && <ClusterTab portfolioId={activePortfolioId} fetchFn={fetchPortfolioClusters} />}
                   {activeTab === 'growth'  && <GrowthTab growthData={growthData} loading={growthLoading} />}
                   {activeTab === 'summary' && <SummaryTab summaryData={summaryData} loading={summaryLoading} />}
-                  {activeTab === 'reco'    && <RecommendTab recommendData={recommendData} loading={recommendLoading} onAdd={onAdd} />}
+                  {activeTab === 'reco'    && <RecommendTab recommendData={recommendData} loading={recommendLoading} onAdd={onRecommendAdd} />}
                 </Suspense>
               </div>
             )}
@@ -695,9 +710,9 @@ export default function PortfolioDetail() {
           </div>
 
 
-          {/* ═══════════════════════════════════════════════════════════════
+          {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
               HOLDINGS TABLE
-          ═══════════════════════════════════════════════════════════════ */}
+          â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
           <div className="bg-surface-900 border border-surface-700 rounded-xl overflow-hidden">
 
             {/* Table toolbar */}
@@ -712,7 +727,7 @@ export default function PortfolioDetail() {
               <div className="flex items-center gap-2">
                 {message && (
                   <span className="text-xs text-gain-400 bg-gain-500/10 border border-gain-500/20 px-2.5 py-1 rounded-lg">
-                    ✓ {message}
+                    OK {message}
                   </span>
                 )}
                 <button onClick={onRefreshAll} disabled={refreshingAll || lrLoading || logLoading}
@@ -723,7 +738,7 @@ export default function PortfolioDetail() {
                     <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
                     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
                   </svg>
-                  {refreshingAll ? 'Refreshing…' : 'Refresh'}
+                  {refreshingAll ? 'Refreshing...' : 'Refresh'}
                 </button>
               </div>
             </div>
@@ -737,9 +752,10 @@ export default function PortfolioDetail() {
                       { key: 'symbol',          label: 'Symbol',        align: 'left'  },
                       { key: 'name',            label: 'Company',       align: 'left'  },
                       { key: 'qty',             label: 'Qty',           align: 'right' },
-                      { key: 'last',            label: 'LTP',           align: 'right' },
-                      { key: null,              label: 'Cur. Value',    align: 'right' },
-                      { key: 'pnl',             label: 'P&L (₹)',       align: 'right' },
+                      { key: 'openPrice',       label: 'Open',          align: 'right' },
+                      { key: 'minPrice',        label: 'Min',           align: 'right' },
+                      { key: 'maxPrice',        label: 'Max',           align: 'right' },
+                      { key: 'closePrice',      label: 'Close',         align: 'right' },
                       { key: 'predictedNextClose', label: 'LR Pred.',   align: 'right' },
                       { key: 'signal',          label: 'Signal',        align: 'center'},
                       { key: null,              label: 'Actions',       align: 'center'},
@@ -758,7 +774,7 @@ export default function PortfolioDetail() {
                 <tbody>
                 {sortedRows.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-6 py-16 text-center">
+                      <td colSpan={10} className="px-6 py-16 text-center">
                         <div className="flex flex-col items-center gap-3">
                           <svg viewBox="0 0 120 90" className="w-28 h-20 opacity-60">
                             <rect width="120" height="90" fill="#080C12" rx="8"/>
@@ -785,8 +801,6 @@ export default function PortfolioDetail() {
                   ) : sortedRows.map((s, idx) => {
                     const isGain = (s.pnlPct ?? 0) >= 0
                     const rowBg  = isGain ? 'rgba(34,197,94,0.03)' : 'rgba(239,68,68,0.03)'
-                    const ltpColor = isGain ? '#22C55E' : '#EF4444'
-                    const curVal = ((s.last ?? s.current_price ?? 0) * s.qty)
                     const stockLink = s.stock_id ? `/stocks/${s.stock_id}` : `/stocks/live/${encodeURIComponent(s.symbol)}`
                     const signalCfg = {
                       BUY:  { bg: 'rgba(34,197,94,0.12)',  border: 'rgba(34,197,94,0.3)',  color: '#22C55E' },
@@ -803,7 +817,7 @@ export default function PortfolioDetail() {
                           onMouseLeave={e => e.currentTarget.style.background = expandedRow === s.symbol ? 'rgba(14,165,233,0.04)' : rowBg}
                           onClick={() => setExpandedRow(expandedRow === s.symbol ? null : s.symbol)}
                         >
-                          {/* Symbol — sticky */}
+                          {/* Symbol â€” sticky */}
                           <td className="px-3 py-2.5 font-semibold text-left sticky left-0 bg-surface-900 z-[5]">
                             <Link to={stockLink}
                               state={{ portfolioId: activePortfolioId, fromRecommended: isRecommendedView }}
@@ -814,33 +828,22 @@ export default function PortfolioDetail() {
                           </td>
                           <td className="px-3 py-2.5 text-neutral-400 truncate max-w-[140px]">{s.name}</td>
                           <td className="px-3 py-2.5 text-right font-mono text-neutral-300">{s.qty}</td>
-                          {/* LTP with live dot */}
-                          <td className="px-3 py-2.5 text-right font-mono font-medium" style={{ color: ltpColor }}>
-                            <span className="inline-flex items-center justify-end gap-1">
-                              <span className="inline-block w-1 h-1 rounded-full dot-live" style={{ background: ltpColor }} />
-                              {s.last !== null ? `₹${fmtINR(s.last)}` : '—'}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono text-neutral-300">
-                            {curVal > 0 ? `₹${fmtINR(curVal)}` : '—'}
-                          </td>
-                          {/* P&L ₹ */}
-                          <td className="px-3 py-2.5 text-right font-mono font-medium"
-                            style={{ color: (s.pnl ?? 0) >= 0 ? '#22C55E' : '#EF4444' }}>
-                            {s.pnl !== null ? `₹${fmtINR(Math.abs(s.pnl))}` : '—'}
-                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono text-neutral-300">{s.openPrice !== null ? `Rs${fmtINR(s.openPrice)}` : '--'}</td>
+                          <td className="px-3 py-2.5 text-right font-mono text-neutral-300">{s.minPrice !== null ? `Rs${fmtINR(s.minPrice)}` : '--'}</td>
+                          <td className="px-3 py-2.5 text-right font-mono text-neutral-300">{s.maxPrice !== null ? `Rs${fmtINR(s.maxPrice)}` : '--'}</td>
+                          <td className="px-3 py-2.5 text-right font-mono text-neutral-300">{s.closePrice !== null ? `Rs${fmtINR(s.closePrice)}` : '--'}</td>
                           {/* LR Prediction */}
                           <td className="px-3 py-2.5 text-right font-mono">
                             {s.predictedNextClose !== null ? (
                               <span className="text-neutral-400">
-                                ₹{fmtINR(s.predictedNextClose)}
+                                Rs{fmtINR(s.predictedNextClose)}
                                 {s.predictedChangePct !== null && (
                                   <span className={`ml-1 ${s.predictedChangePct >= 0 ? 'text-gain-500' : 'text-loss-500'}`}>
                                     ({s.predictedChangePct >= 0 ? '+' : ''}{s.predictedChangePct.toFixed(1)}%)
                                   </span>
                                 )}
                               </span>
-                            ) : (lrLoading ? <span className="shimmer inline-block w-16 h-3 rounded" /> : '—')}
+                            ) : (lrLoading ? <span className="shimmer inline-block w-16 h-3 rounded" /> : '--')}
                           </td>
                           {/* Signal badge */}
                           <td className="px-3 py-2.5 text-center">
@@ -849,7 +852,7 @@ export default function PortfolioDetail() {
                                 style={{ color: signalCfg.color, background: signalCfg.bg, borderColor: signalCfg.border }}>
                                 {s.signal}
                               </span>
-                            ) : logLoading ? <span className="shimmer inline-block w-10 h-4 rounded" /> : '—'}
+                            ) : logLoading ? <span className="shimmer inline-block w-10 h-4 rounded" /> : '--'}
                           </td>
                           {/* Actions */}
                           <td className="px-3 py-2.5 text-center">
@@ -870,29 +873,29 @@ export default function PortfolioDetail() {
                         {/* Expanded mini-detail row */}
                         {expandedRow === s.symbol && (
                           <tr key={`${s.symbol}-expand`} className="border-b border-surface-700/50">
-                            <td colSpan={9} className="px-4 py-3 bg-surface-800/50">
+                            <td colSpan={10} className="px-4 py-3 bg-surface-800/50">
                               <div className="flex flex-wrap gap-4 text-xs">
                                 <div>
                                   <span className="text-neutral-500">52W Low: </span>
-                                  <span className="font-mono text-loss-400">₹{fmtINR(s.min365)}</span>
+                                  <span className="font-mono text-loss-400">Rs{fmtINR(s.min365)}</span>
                                 </div>
                                 <div>
                                   <span className="text-neutral-500">52W High: </span>
-                                  <span className="font-mono text-gain-400">₹{fmtINR(s.max365)}</span>
+                                  <span className="font-mono text-gain-400">Rs{fmtINR(s.max365)}</span>
                                 </div>
                                 <div>
                                   <span className="text-neutral-500">Discount from 52W High: </span>
                                   <span className="font-mono text-neutral-300">
-                                    {s.discount !== null ? `${s.discount.toFixed(1)}%` : '—'}
+                                    {s.discount !== null ? `${s.discount.toFixed(1)}%` : '--'}
                                   </span>
                                 </div>
                                 <div>
                                   <span className="text-neutral-500">Sector: </span>
-                                  <span className="text-neutral-300">{s.sector || '—'}</span>
+                                  <span className="text-neutral-300">{s.sector || '--'}</span>
                                 </div>
                                 <div>
                                   <span className="text-neutral-500">Purchase Date: </span>
-                                  <span className="font-mono text-neutral-300">{s.purchase_date || '—'}</span>
+                                  <span className="font-mono text-neutral-300">{s.purchase_date || '--'}</span>
                                 </div>
                               </div>
                               {/* 52W position bar */}
@@ -935,19 +938,14 @@ export default function PortfolioDetail() {
                         <Link to={stockLink} state={{ portfolioId: activePortfolioId, fromRecommended: isRecommendedView }} className="text-sm font-bold font-mono text-brand-400">{s.symbol}</Link>
                         <div className="text-xs text-neutral-500 truncate">{s.name}</div>
                       </div>
-                      <div className="text-right">
-                        <div className="text-sm font-bold font-mono text-neutral-200">
-                          {s.last !== null ? `₹${fmtINR(s.last)}` : '—'}
-                        </div>
-                      </div>
+                      <div className="text-right text-2xs text-neutral-500">OHLC</div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-2xs">
                       <div><span className="text-neutral-600">Qty</span><br/><span className="font-mono text-neutral-300">{s.qty}</span></div>
-                      <div><span className="text-neutral-600">P&L</span><br/>
-                        <span className={`font-mono ${isGain?'text-gain-500':'text-loss-500'}`}>
-                          ₹{fmtINR(Math.abs(s.pnl))}
-                        </span>
-                      </div>
+                      <div><span className="text-neutral-600">Open</span><br/><span className="font-mono text-neutral-300">{s.openPrice !== null ? `Rs${fmtINR(s.openPrice)}` : '—'}</span></div>
+                      <div><span className="text-neutral-600">Min</span><br/><span className="font-mono text-neutral-300">{s.minPrice !== null ? `Rs${fmtINR(s.minPrice)}` : '—'}</span></div>
+                      <div><span className="text-neutral-600">Max</span><br/><span className="font-mono text-neutral-300">{s.maxPrice !== null ? `Rs${fmtINR(s.maxPrice)}` : '—'}</span></div>
+                      <div><span className="text-neutral-600">Close</span><br/><span className="font-mono text-neutral-300">{s.closePrice !== null ? `Rs${fmtINR(s.closePrice)}` : '—'}</span></div>
                     </div>
                     <div className="flex items-center justify-between">
                       {signalCfg && (
@@ -969,9 +967,9 @@ export default function PortfolioDetail() {
 
         </div>{/* /container */}
 
-        {/* ═══════════════════════════════════════════════════════════════
-            FAB — Add Stock
-        ═══════════════════════════════════════════════════════════════ */}
+        {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+            FAB â€” Add Stock
+        â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
         <button onClick={() => setDrawerOpen(true)}
           className="fixed bottom-6 right-6 z-30 w-13 h-13 flex items-center justify-center rounded-full text-white text-xl shadow-2xl transition-all duration-200 hover:scale-110 active:scale-95"
           style={{
@@ -987,9 +985,9 @@ export default function PortfolioDetail() {
 
       </div>{/* /page */}
 
-      {/* ═══════════════════════════════════════════════════════════════
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
           ADD STOCK DRAWER
-      ═══════════════════════════════════════════════════════════════ */}
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <AddStockDrawer
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setQuery(''); setSuggestions([]) }}
@@ -998,17 +996,31 @@ export default function PortfolioDetail() {
         onAdd={onAdd}
       />
 
-      {/* ═══════════════════════════════════════════════════════════════
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
           MPIN MODAL
-      ═══════════════════════════════════════════════════════════════ */}
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <DarkMpinModal
         open={mpinOpen}
         title={`Confirm Remove ${pendingRemove ?? ''}`}
         onSuccess={onRemove}
         onClose={() => { setMpinOpen(false); setPendingRemove(null) }}
       />
+
+      {recommendModalStock && (
+        <AddToPortfolioModal
+          stock={recommendModalStock}
+          market={(decodedMarket || '').toUpperCase().includes('US') ? 'US' : 'IN'}
+          onClose={() => setRecommendModalStock(null)}
+        />
+      )}
     </>
   )
 }
+
+
+
+
+
+
 
 

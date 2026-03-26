@@ -1,13 +1,15 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
 
-// ── Nav items ─────────────────────────────────────────────────────────────────
+// â”€â”€ Nav items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const NAV_ITEMS = [
   { to: '/portfolio',           label: 'Dashboard' },
+  { to: '/portfolio/recommended', label: 'Recommended' },
+  { to: '/quality',             label: 'Quality'   },
   { to: '/stocks',              label: 'Stocks'    },
   { to: '/time-series-forecast',label: 'Forecast'  },
-  { to: '/metals',              label: 'Gold·Silver'},
+  { to: '/metals',              label: 'Gold-Silver'},
   { to: '/nifty-clusters',      label: 'Clusters'  },
 ]
 
@@ -18,7 +20,7 @@ export default function Navbar() {
 
   function handleLogout() { logout(); navigate('/login'); setOpen(false) }
 
-  // Active link style — bottom-border indicator, no background pill
+  // Active link style â€” bottom-border indicator, no background pill
   const linkClass = ({ isActive }) =>
     `relative px-3 py-1.5 text-sm font-medium transition-colors duration-150 rounded-lg
      ${isActive
@@ -26,7 +28,7 @@ export default function Navbar() {
        : 'text-neutral-400 hover:text-neutral-200 hover:bg-surface-800'
      }`
 
-  // Mobile link — full width row
+  // Mobile link â€” full width row
   const mobileLinkClass = ({ isActive }) =>
     `block px-4 py-3 text-sm font-medium border-l-2 transition-colors duration-150
      ${isActive
@@ -39,7 +41,7 @@ export default function Navbar() {
       className="sticky top-0 z-50"
       style={{ background: '#080C12', borderBottom: '1px solid #1E2530', backdropFilter: 'blur(12px)' }}
     >
-      {/* ── Main bar ─────────────────────────────────────────────────────── */}
+      {/* â”€â”€ Main bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="max-w-[1700px] mx-auto px-4 md:px-6 h-14 flex items-center justify-between gap-4">
 
         {/* Brand */}
@@ -53,7 +55,7 @@ export default function Navbar() {
             className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold font-mono transition-colors"
             style={{ background: 'rgba(14,165,233,0.12)', border: '1px solid rgba(14,165,233,0.3)', color: '#38BDF8' }}
           >
-            ▸
+            {'>'}
           </span>
           <span className="font-bold text-sm tracking-tight" style={{ color: '#e2e8f0' }}>
             <span style={{ color: '#38BDF8' }} className="font-mono">AI</span>
@@ -61,7 +63,7 @@ export default function Navbar() {
           </span>
         </Link>
 
-        {/* ── Desktop nav ──────────────────────────────────────────────────── */}
+        {/* â”€â”€ Desktop nav â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         {isAuthenticated ? (
           <nav className="hidden md:flex items-center gap-1 flex-1 justify-center">
             {NAV_ITEMS.map(item => (
@@ -71,7 +73,7 @@ export default function Navbar() {
             ))}
             {user?.is_staff && (
               <NavLink to="/admin-panel" className={linkClass}>
-                <span className="mr-1">🛡</span>Admin
+                Admin
               </NavLink>
             )}
           </nav>
@@ -83,7 +85,7 @@ export default function Navbar() {
           </nav>
         )}
 
-        {/* ── Desktop right side ────────────────────────────────────────────── */}
+        {/* â”€â”€ Desktop right side â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <div className="hidden md:flex items-center gap-2 flex-shrink-0">
           {isAuthenticated && !user?.mpin_set && (
             <NavLink
@@ -91,7 +93,7 @@ export default function Navbar() {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150"
               style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#F59E0B' }}
             >
-              🔐 Set MPIN
+              Set MPIN
             </NavLink>
           )}
 
@@ -143,7 +145,7 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* ── Hamburger (mobile) ────────────────────────────────────────────── */}
+        {/* â”€â”€ Hamburger (mobile) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <button
           className="md:hidden flex items-center justify-center w-9 h-9 rounded-lg transition-colors"
           style={{ border: '1px solid #1E2530', color: open ? '#38BDF8' : '#64748b' }}
@@ -163,7 +165,7 @@ export default function Navbar() {
         </button>
       </div>
 
-      {/* ── Mobile dropdown ───────────────────────────────────────────────── */}
+      {/* â”€â”€ Mobile dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {open && (
         <div
           className="md:hidden border-t"
@@ -188,7 +190,7 @@ export default function Navbar() {
                     className={mobileLinkClass}
                     onClick={() => setOpen(false)}
                   >
-                    🛡 Admin
+                    Admin
                   </NavLink>
                 )}
                 {!user?.mpin_set && (
@@ -197,7 +199,7 @@ export default function Navbar() {
                     className={mobileLinkClass}
                     onClick={() => setOpen(false)}
                   >
-                    🔐 Set MPIN
+                    Set MPIN
                   </NavLink>
                 )}
               </>
@@ -209,7 +211,7 @@ export default function Navbar() {
             )}
           </nav>
 
-          {/* Mobile footer — user + logout */}
+          {/* Mobile footer â€” user + logout */}
           {isAuthenticated && (
             <div
               className="flex items-center justify-between px-4 py-3 border-t"
@@ -232,3 +234,4 @@ export default function Navbar() {
     </header>
   )
 }
+
