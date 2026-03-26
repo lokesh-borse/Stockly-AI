@@ -111,6 +111,13 @@ export async function fetchRecommendedPortfolios(market) {
   return res.data
 }
 
+export async function fetchQualityRecommendations(market) {
+  const params = {}
+  if (market) params.market = market
+  const res = await api.get('stocks/quality-recommendations/', { params, timeout: 120000 })
+  return res.data
+}
+
 export async function searchLiveStocks(query, limit = 10) {
   const res = await api.get('stocks/live-search/', { params: { q: query, limit } })
   return res.data

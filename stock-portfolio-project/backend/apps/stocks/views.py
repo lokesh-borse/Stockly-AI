@@ -10,11 +10,13 @@ from django.conf import settings
 from collections import defaultdict
 import csv
 import json
+import re
+import math
 from decimal import Decimal
 from .models import Stock, StockCatalog, StockUniverse
 from .serializers import StockSerializer, StockCatalogSerializer, StockUniverseSerializer
 from services.stock_service import get_live_quote, get_history, search_symbols, get_stock_profile
-from apps.ml_analytics.models import StockSentimentAnalysis
+from apps.ml_analytics.models import StockSentimentAnalysis, PortfolioRecommendations
 from apps.portfolio.models import Portfolio, PortfolioStock
 
 
@@ -105,6 +107,148 @@ def recommended_portfolios(request):
         'total_markets': len(markets),
         'total_stocks': qs.count(),
         'markets': markets,
+    })
+
+
+def _safe_float(value):
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None
+    return num if math.isfinite(num) else None
+
+
+def _parse_sector_market(description):
+    text = (description or '').strip()
+    match = re.search(r'auto-generated from stock_universe symbols in sector:\s*(.*?)\s*\((.*?)\)\s*$', text, flags=re.IGNORECASE)
+    if not match:
+        return '', ''
+    sector = (match.group(1) or '').strip()
+    market = (match.group(2) or '').strip()
+    return sector, market
+
+
+def _build_recommendations_for_portfolio(portfolio, market_label, sector_name):
+    holdings = portfolio.holdings.select_related('stock').all()
+    rows = []
+    for holding in holdings:
+        symbol = (holding.stock.symbol or '').strip().upper()
+        if not symbol:
+            continue
+
+        history = get_history(symbol, period='1y', interval='1d') or []
+        closes = []
+        for item in history:
+            close_val = _safe_float(item.get('close_price'))
+            if close_val is not None:
+                closes.append(close_val)
+
+        if len(closes) < 2 or closes[0] <= 0:
+            continue
+
+        one_year_return_pct = ((closes[-1] / closes[0]) - 1.0) * 100.0
+        live = get_live_quote(symbol) or {}
+        current_price = _safe_float(live.get('price'))
+        rows.append({
+            'symbol': symbol,
+            'name': holding.stock.name or symbol,
+            'sector': sector_name or holding.stock.sector or '',
+            'market': market_label,
+            'current_price': current_price,
+            'one_year_return_pct': round(one_year_return_pct, 2),
+            'worth_buy': one_year_return_pct > 0,
+            'signal': 'BUY' if one_year_return_pct > 0 else 'HOLD',
+        })
+
+    rows.sort(key=lambda x: x['one_year_return_pct'], reverse=True)
+    top = rows[:3]
+    for row in top:
+        row['reason'] = (
+            f"Top return pick in {sector_name}. "
+            f"1Y return {row['one_year_return_pct']:.2f}%."
+        )
+    return top
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def quality_recommendations(request):
+    market_param = (request.query_params.get('market') or '').strip()
+
+    catalog_qs = StockCatalog.objects.all()
+    if market_param:
+        catalog_qs = catalog_qs.filter(market__iexact=market_param)
+
+    sectors_by_market = defaultdict(set)
+    for row in catalog_qs.only('market', 'sector'):
+        market_name = (row.market or '').strip()
+        sector_name = (row.sector or '').strip()
+        if market_name and sector_name:
+            sectors_by_market[market_name].add(sector_name)
+
+    user_portfolios = Portfolio.objects.filter(user=request.user).only('id', 'name', 'description')
+    portfolio_key_map = {}
+    for portfolio in user_portfolios:
+        sector_name, market_name = _parse_sector_market(portfolio.description)
+        if not sector_name or not market_name:
+            continue
+        key = (market_name.lower(), sector_name.lower())
+        portfolio_key_map[key] = portfolio
+
+    response_markets = []
+    for market_name in sorted(sectors_by_market.keys(), key=lambda m: m.lower()):
+        sector_rows = []
+        for sector_name in sorted(sectors_by_market[market_name], key=lambda s: s.lower()):
+            portfolio = portfolio_key_map.get((market_name.lower(), sector_name.lower()))
+            recommendations = []
+            from_db = False
+
+            if portfolio:
+                rec = (
+                    PortfolioRecommendations.objects
+                    .filter(portfolio=portfolio)
+                    .order_by('-created_at')
+                    .first()
+                )
+                if rec and isinstance(rec.recommendations, list) and rec.recommendations:
+                    recommendations = sorted(
+                        rec.recommendations,
+                        key=lambda item: _safe_float((item or {}).get('one_year_return_pct')) or 0.0,
+                        reverse=True,
+                    )[:3]
+                    from_db = True
+                else:
+                    recommendations = _build_recommendations_for_portfolio(
+                        portfolio=portfolio,
+                        market_label=market_name,
+                        sector_name=sector_name,
+                    )
+                    if recommendations:
+                        PortfolioRecommendations.objects.create(
+                            portfolio=portfolio,
+                            reason=f'Sector quality recommendations for {sector_name}',
+                            recommendations=recommendations,
+                            portfolio_sectors=[sector_name],
+                        )
+
+            sector_rows.append({
+                'sector': sector_name,
+                'market': market_name,
+                'portfolio_id': portfolio.id if portfolio else None,
+                'selected_count': len(recommendations),
+                'recommendations': recommendations,
+                'from_db': from_db,
+            })
+
+        response_markets.append({
+            'market': market_name,
+            'sector_count': len(sector_rows),
+            'sectors': sector_rows,
+        })
+
+    return Response({
+        'total_markets': len(response_markets),
+        'markets': response_markets,
     })
 
 @api_view(['GET'])

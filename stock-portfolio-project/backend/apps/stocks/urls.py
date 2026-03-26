@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     StockViewSet, stocks_search, live_search, live_detail, historical,
     stock_sentiment, stock_performance_5y, stock_summary_download, chat_stream,
-    stock_catalog_list, recommended_portfolios, stock_universe
+    stock_catalog_list, recommended_portfolios, stock_universe, quality_recommendations
 )
 
 router = DefaultRouter()
@@ -16,6 +16,8 @@ urlpatterns = [
     path('stocks/catalog', stock_catalog_list),
     path('stocks/recommended-portfolios/', recommended_portfolios),
     path('stocks/recommended-portfolios', recommended_portfolios),
+    path('stocks/quality-recommendations/', quality_recommendations),
+    path('stocks/quality-recommendations', quality_recommendations),
     path('stocks/live-search/', live_search),
     path('stocks/live-search', live_search),
     path('stocks/live-detail/', live_detail),
