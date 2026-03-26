@@ -750,7 +750,7 @@ export default function PortfolioDetail() {
                           {/* Symbol — sticky */}
                           <td className="px-3 py-2.5 font-semibold text-left sticky left-0 bg-surface-900 z-[5]">
                             <Link to={stockLink}
-                              state={{ portfolioId: activePortfolioId }}
+                              state={{ portfolioId: activePortfolioId, fromRecommended: isRecommendedView }}
                               onClick={e => e.stopPropagation()}
                               className="text-brand-400 hover:text-brand-300 transition-colors font-mono">
                               {s.symbol}
@@ -799,7 +799,7 @@ export default function PortfolioDetail() {
                           <td className="px-3 py-2.5 text-center">
                             <div className="flex items-center justify-center gap-1.5" onClick={e => e.stopPropagation()}>
                               <Link to={stockLink}
-                                state={{ portfolioId: activePortfolioId }}
+                                state={{ portfolioId: activePortfolioId, fromRecommended: isRecommendedView }}
                                 className="px-2 py-1 rounded text-2xs font-medium text-brand-400 border border-brand-500/20 bg-brand-500/5 hover:bg-brand-500/15 transition-colors">
                                 View
                               </Link>
@@ -876,7 +876,7 @@ export default function PortfolioDetail() {
                   <div key={s.symbol} className="p-4 space-y-2">
                     <div className="flex items-center justify-between">
                       <div>
-                        <Link to={stockLink} state={{ portfolioId: activePortfolioId }} className="text-sm font-bold font-mono text-brand-400">{s.symbol}</Link>
+                        <Link to={stockLink} state={{ portfolioId: activePortfolioId, fromRecommended: isRecommendedView }} className="text-sm font-bold font-mono text-brand-400">{s.symbol}</Link>
                         <div className="text-xs text-neutral-500 truncate">{s.name}</div>
                       </div>
                       <div className="text-right">

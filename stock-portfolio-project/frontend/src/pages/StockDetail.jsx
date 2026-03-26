@@ -147,16 +147,25 @@ function SignalBadge({ signal, size = 'md' }) {
 }
 
 // ── Add-to-Portfolio dropdown ─────────────────────────────────────────────────
-function AddToPortfolioButton({ symbol, livePrice }) {
+function AddToPortfolioButton({ symbol, livePrice, forceShow = false }) {
   const [portfolios, setPortfolios] = useState([])
   const [open, setOpen]             = useState(false)
   const [loading, setLoading]       = useState(false)
   const [status, setStatus]         = useState(null)   // null | 'ok' | 'err'
   const ref = useRef()
+  const normalizedSymbol = String(symbol || '').toUpperCase().trim()
 
   useEffect(() => {
     fetchPortfolio().then(setPortfolios).catch(() => {})
   }, [])
+
+  const hasSymbolInPortfolio = (portfolio) =>
+    (portfolio?.stocks || []).some((holding) =>
+      String(holding?.symbol || '').toUpperCase().trim() === normalizedSymbol
+    )
+
+  const alreadyOwnedInAnyPortfolio = portfolios.some(hasSymbolInPortfolio)
+  const selectablePortfolios = portfolios.filter((portfolio) => !hasSymbolInPortfolio(portfolio))
 
   // Close on outside click
   useEffect(() => {
@@ -164,6 +173,8 @@ function AddToPortfolioButton({ symbol, livePrice }) {
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [])
+
+  if (alreadyOwnedInAnyPortfolio && !forceShow) return null
 
   async function handleAdd(portfolioId) {
     setLoading(true); setStatus(null); setOpen(false)
@@ -179,7 +190,7 @@ function AddToPortfolioButton({ symbol, livePrice }) {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(v => !v)}
-        disabled={loading}
+        disabled={loading || selectablePortfolios.length === 0}
         className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm text-white
                    disabled:opacity-50 transition-all duration-200 hover:shadow-lg active:scale-95"
         style={{ background: 'linear-gradient(135deg,#0369a1,#0EA5E9)', boxShadow: '0 4px 16px rgba(14,165,233,0.3)' }}
@@ -187,7 +198,7 @@ function AddToPortfolioButton({ symbol, livePrice }) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
           <path d="M12 5v14M5 12h14"/>
         </svg>
-        {loading ? 'Adding…' : 'Add to Portfolio'}
+        {loading ? 'Adding…' : selectablePortfolios.length === 0 ? 'Already Added' : 'Add to Portfolio'}
       </button>
 
       {/* Status flash */}
@@ -201,9 +212,9 @@ function AddToPortfolioButton({ symbol, livePrice }) {
           <div className="px-4 py-2.5 border-b border-surface-700 text-2xs uppercase tracking-widest text-neutral-500">
             Choose portfolio
           </div>
-          {portfolios.length === 0
-            ? <div className="px-4 py-4 text-xs text-neutral-500 text-center">No portfolios found</div>
-            : portfolios.map(p => (
+          {selectablePortfolios.length === 0
+            ? <div className="px-4 py-4 text-xs text-neutral-500 text-center">No eligible portfolio found</div>
+            : selectablePortfolios.map(p => (
                 <button key={p.id}
                   onClick={() => handleAdd(p.id)}
                   className="w-full text-left px-4 py-3 text-sm text-neutral-300 hover:bg-surface-800 hover:text-neutral-100 transition-colors border-b border-surface-700/50 last:border-0">
@@ -248,6 +259,7 @@ export default function StockDetail() {
   const [logData,     setLogData]     = useState(null)
   const [mlLoading,   setMlLoading]   = useState(false)
   const preferredMlPortId = Number(location.state?.portfolioId)
+  const fromRecommended = Boolean(location.state?.fromRecommended)
   const hasPreferredMlPortId = Number.isFinite(preferredMlPortId) && preferredMlPortId > 0
 
   // ── Download ──────────────────────────────────────────────────────────────
@@ -566,7 +578,7 @@ export default function StockDetail() {
 
                 {/* Action row */}
                 <div className="flex items-center justify-end gap-2 mt-4">
-                  <AddToPortfolioButton symbol={symbol} livePrice={livePrice} />
+                  <AddToPortfolioButton symbol={symbol} livePrice={livePrice} forceShow={fromRecommended} />
                   <button
                     onClick={async () => {
                       setDownloading(true)
