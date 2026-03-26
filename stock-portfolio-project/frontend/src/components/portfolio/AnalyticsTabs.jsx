@@ -26,7 +26,7 @@ const CLUSTER_COLORS = [
 const darkDefaults = {
   responsive: true,
   maintainAspectRatio: false,
-  animation: { duration: 600 },
+  animation: { duration: 250 },
   plugins: {
     legend: {
       labels: { color: '#94a3b8', font: { family: 'Inter', size: 11 }, boxWidth: 10 },
@@ -64,35 +64,52 @@ const SkeletonBlock = ({ h = '16px', w = '100%', className = '' }) => (
 )
 
 // ─── TAB 1 : ML Forecast (Linear Regression) ─────────────────────────────────
-export function MLForecastTab({ lrData, loading }) {
+export function MLForecastTab({ lrData, logData, loading }) {
+  const resolveCurrent = (p) => {
+    const n = Number(p?.current_price)
+    if (Number.isFinite(n)) return n
+    const c = Number(p?.close_price)
+    if (Number.isFinite(c)) return c
+    const l = Number(p?.latest_close)
+    if (Number.isFinite(l)) return l
+    return 0
+  }
+
+  const signalBySymbol = useMemo(() => {
+    const preds = logData?.predictions || []
+    return Object.fromEntries(preds.map((p) => [p.symbol, p.signal]))
+  }, [logData])
+
   const chartData = useMemo(() => {
     if (!lrData?.predictions?.length) return null
     const preds = lrData.predictions
     return {
-      labels: preds.map(p => p.symbol),
+      labels: preds.map((p) => p.symbol),
       datasets: [
         {
-          label: 'Current Price (₹)',
-          data: preds.map(p => p.current_price ?? 0),
+          label: 'Current Price (Rs)',
+          data: preds.map(resolveCurrent),
           borderColor: '#0EA5E9',
-          backgroundColor: 'rgba(14,165,233,0.15)',
-          fill: true,
-          tension: 0.4,
-          pointRadius: 5,
-          pointHoverRadius: 8,
+          backgroundColor: 'rgba(14,165,233,0.1)',
+          fill: false,
+          tension: 0.35,
+          borderWidth: 2,
+          pointRadius: 3,
+          pointHoverRadius: 7,
           pointBackgroundColor: '#0EA5E9',
         },
         {
-          label: 'Predicted Next Close (₹)',
-          data: preds.map(p => p.predicted_next_close ?? 0),
-          borderColor: '#22C55E',
-          backgroundColor: 'rgba(34,197,94,0.08)',
+          label: 'Predicted Next Close (Rs)',
+          data: preds.map((p) => Number(p.lr_predict ?? p.predicted_next_close ?? 0)),
+          borderColor: '#22ff88',
+          backgroundColor: 'rgba(34,255,136,0.08)',
           fill: false,
-          tension: 0.4,
-          borderDash: [5, 3],
+          tension: 0.35,
+          borderWidth: 3,
+          borderDash: [7, 4],
           pointRadius: 5,
           pointHoverRadius: 8,
-          pointBackgroundColor: '#22C55E',
+          pointBackgroundColor: '#22ff88',
         },
       ],
     }
@@ -103,7 +120,7 @@ export function MLForecastTab({ lrData, loading }) {
       <div className="space-y-3 p-4">
         <SkeletonBlock h="180px" />
         <div className="grid grid-cols-3 gap-3">
-          {[1,2,3].map(i => <SkeletonBlock key={i} h="52px" />)}
+          {[1, 2, 3].map((i) => <SkeletonBlock key={i} h="52px" />)}
         </div>
       </div>
     )
@@ -127,44 +144,45 @@ export function MLForecastTab({ lrData, loading }) {
             tooltip: {
               ...darkDefaults.plugins.tooltip,
               callbacks: {
-                label: ctx => ` ${ctx.dataset.label}: ₹${Number(ctx.raw).toFixed(2)}`
-              }
-            }
+                label: (ctx) => ` ${ctx.dataset.label}: Rs${Number(ctx.raw).toFixed(2)}`,
+              },
+            },
           },
           scales: {
             ...darkDefaults.scales,
-            y: { ...darkDefaults.scales.y, ticks: { ...darkDefaults.scales.y.ticks, callback: v => `₹${v}` } }
-          }
+            y: { ...darkDefaults.scales.y, ticks: { ...darkDefaults.scales.y.ticks, callback: (v) => `Rs${v}` } },
+          },
         }} />
       </div>
 
-      {/* Prediction table */}
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-surface-700">
-              {['Symbol','Current','Predicted','Δ Change','R²','Trend'].map(h => (
+              {['Symbol', 'Curr Val', 'LR Pred', 'Signal'].map((h) => (
                 <th key={h} className="px-3 py-2 text-left text-2xs uppercase tracking-wider text-neutral-500">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {lrData.predictions.map(p => {
-              const chg = p.predicted_change_percent
-              const isUp = chg >= 0
+            {lrData.predictions.map((p) => {
+              const current = resolveCurrent(p)
+              const lrPred = Number.isFinite(Number(p.lr_predict)) ? Number(p.lr_predict) : Number(p.predicted_next_close || 0)
+              const signal = signalBySymbol[p.symbol] || p.signal || (Number(p.predicted_change_percent || 0) >= 0 ? 'BUY' : 'SELL')
+              const signalClass = signal === 'BUY'
+                ? 'text-gain-500 bg-gain-500/10 border-gain-500/20'
+                : signal === 'SELL'
+                  ? 'text-loss-500 bg-loss-500/10 border-loss-500/20'
+                  : 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+
               return (
                 <tr key={p.symbol} className="border-b border-surface-700/50 hover:bg-surface-800 transition-colors">
                   <td className="px-3 py-2 font-medium text-neutral-200">{p.symbol}</td>
-                  <td className="px-3 py-2 font-mono text-neutral-300">₹{Number(p.current_price||0).toFixed(2)}</td>
-                  <td className="px-3 py-2 font-mono text-brand-400">₹{Number(p.predicted_next_close||0).toFixed(2)}</td>
-                  <td className={`px-3 py-2 font-mono font-medium ${isUp ? 'text-gain-500' : 'text-loss-500'}`}>
-                    {isUp ? '▲' : '▼'} {Math.abs(chg||0).toFixed(2)}%
-                  </td>
-                  <td className="px-3 py-2 font-mono text-neutral-400">{Number(p.r2_score||0).toFixed(3)}</td>
+                  <td className="px-3 py-2 font-mono text-neutral-300">Rs{current.toFixed(2)}</td>
+                  <td className="px-3 py-2 font-mono text-brand-400">Rs{lrPred.toFixed(2)}</td>
                   <td className="px-3 py-2">
-                    <span className={`text-2xs font-medium px-1.5 py-0.5 rounded border
-                      ${isUp ? 'text-gain-500 bg-gain-500/10 border-gain-500/20' : 'text-loss-500 bg-loss-500/10 border-loss-500/20'}`}>
-                      {isUp ? '↑ UP' : '↓ DOWN'}
+                    <span className={`text-2xs font-medium px-1.5 py-0.5 rounded border ${signalClass}`}>
+                      {signal}
                     </span>
                   </td>
                 </tr>
@@ -176,13 +194,12 @@ export function MLForecastTab({ lrData, loading }) {
 
       {lrData.skipped?.length > 0 && (
         <p className="text-2xs text-neutral-600">
-          Skipped (insufficient data): {lrData.skipped.join(', ')}
+          Skipped (insufficient data): {lrData.skipped.map((s) => s.symbol || s).join(', ')}
         </p>
       )}
     </div>
   )
 }
-
 // ─── TAB 2 : Cluster Analysis (K-Means Scatter) ──────────────────────────────
 export function ClusterTab({ portfolioId, fetchFn }) {
   const [data, setData] = useState(null)
@@ -615,7 +632,7 @@ export function RecommendTab({ recommendData, loading, onAdd }) {
         Sector: <span className="text-neutral-300 font-medium">{recommendData.focus_sector || 'Current Sector'}</span>
         {' | '}Top picks: <span className="text-brand-400 font-medium">{recs.length}</span>
         {' of '}<span className="text-neutral-300">{recommendData.candidate_count ?? recs.length}</span>
-        {' candidates (top 25% quality score).'}
+        {' stocks ranked by return.'}
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {recs.map(r => (
@@ -637,38 +654,20 @@ export function RecommendTab({ recommendData, loading, onAdd }) {
               {r.pe_ratio && (
                 <span className="text-2xs text-neutral-600 bg-surface-700 px-1.5 py-0.5 rounded font-mono">P/E {r.pe_ratio}</span>
               )}
-              {r.quality_score !== undefined && (
-                <span className="text-2xs text-brand-300 bg-brand-500/10 border border-brand-500/20 px-1.5 py-0.5 rounded font-mono">
-                  Q {Number(r.quality_score).toFixed(1)}
-                </span>
-              )}
-              {r.signal && (
-                <span className={`text-2xs px-1.5 py-0.5 rounded border font-semibold ${
-                  r.signal === 'BUY'
-                    ? 'text-gain-400 bg-gain-500/10 border-gain-500/20'
-                    : r.signal === 'WATCH'
-                      ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
-                      : 'text-loss-400 bg-loss-500/10 border-loss-500/20'
+              {r.one_year_return_pct !== undefined && (
+                <span className={`text-2xs px-1.5 py-0.5 rounded font-mono ${
+                  Number(r.one_year_return_pct) >= 0 ? 'text-gain-400 bg-gain-500/10' : 'text-loss-400 bg-loss-500/10'
                 }`}>
-                  {r.signal}
+                  1Y {Number(r.one_year_return_pct).toFixed(2)}%
                 </span>
               )}
             </div>
-            {r.reason && <p className="text-2xs text-neutral-600 mt-2 leading-relaxed">{r.reason}</p>}
-            <p className={`text-2xs mt-2 font-medium ${r.worth_buy ? 'text-gain-400' : 'text-amber-400'}`}>
-              Worth buying: {r.worth_buy ? 'Yes' : 'No (watchlist)'}
-            </p>
-            {onAdd && !r.already_in_portfolio && (
+            {onAdd && (
               <button onClick={() => onAdd(r.symbol)}
                 className="mt-3 w-full py-1.5 rounded text-xs font-medium text-brand-400 border border-brand-500/20 bg-brand-500/5
                   hover:bg-brand-500/15 hover:border-brand-500/40 transition-colors group-hover:border-brand-500/30">
                 + Add to Portfolio
               </button>
-            )}
-            {r.already_in_portfolio && (
-              <div className="mt-3 text-2xs text-neutral-500 border border-surface-700 rounded px-2 py-1 text-center">
-                Already in portfolio
-              </div>
             )}
           </div>
         ))}
@@ -676,5 +675,7 @@ export function RecommendTab({ recommendData, loading, onAdd }) {
     </div>
   )
 }
+
+
 
 

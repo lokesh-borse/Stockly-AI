@@ -38,16 +38,30 @@ class PortfolioViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
     def _close_prices_for_regression(self, holding):
-        history = get_history(holding.stock.symbol, period='1y', interval='1d') or []
+        history = get_history(holding.stock.symbol, period='6mo', interval='1d') or []
         api_prices = [
             float(row['close_price'])
             for row in history
             if row.get('close_price') is not None
         ]
-        if len(api_prices) >= 2:
-            return api_prices, 'yfinance'
+        latest_candle = None
+        if history:
+            last = history[-1]
+            latest_close = float(last.get('close_price')) if last.get('close_price') is not None else None
+            latest_open = float(last.get('open_price')) if last.get('open_price') is not None else latest_close
+            latest_high = float(last.get('high_price')) if last.get('high_price') is not None else latest_close
+            latest_low = float(last.get('low_price')) if last.get('low_price') is not None else latest_close
+            latest_candle = {
+                'open_price': latest_open,
+                'close_price': latest_close,
+                'high_price': latest_high,
+                'low_price': latest_low,
+            }
 
-        return [], 'yfinance'
+        if len(api_prices) >= 2:
+            return api_prices, 'yfinance', latest_candle
+
+        return [], 'yfinance', latest_candle
 
     def _close_prices_for_logistic(self, holding):
         history = get_history(holding.stock.symbol, period='1y', interval='1d') or []
@@ -120,8 +134,9 @@ class PortfolioViewSet(viewsets.ModelViewSet):
 
         predictions = []
         skipped = []
+        lr_rows_to_create = []
         for holding in holdings:
-            prices, source = self._close_prices_for_regression(holding)
+            prices, source, latest_candle = self._close_prices_for_regression(holding)
             if len(prices) < 2:
                 skipped.append(
                     {
@@ -134,18 +149,39 @@ class PortfolioViewSet(viewsets.ModelViewSet):
             result = predict_next_close(prices=prices, symbol=holding.stock.symbol)
             
             # ✅ STORE IN DATABASE
-            LinearRegressionResult.objects.create(
-                portfolio=portfolio,
-                stock=holding.stock,
-                points_used=result.points_used,
-                slope=result.slope,
-                intercept=result.intercept,
-                latest_close=result.latest_close,
-                predicted_next_close=result.predicted_next_close,
-                predicted_change_percent=result.predicted_change_percent,
-                data_source=source,
+            lr_rows_to_create.append(
+                LinearRegressionResult(
+                    portfolio=portfolio,
+                    stock=holding.stock,
+                    points_used=result.points_used,
+                    slope=result.slope,
+                    intercept=result.intercept,
+                    latest_close=result.latest_close,
+                    predicted_next_close=result.predicted_next_close,
+                    predicted_change_percent=result.predicted_change_percent,
+                    data_source=source,
+                )
             )
-            
+            current_price = result.latest_close
+            open_price = None
+            min_price = None
+            max_price = None
+            close_price = None
+            if latest_candle:
+                open_price = latest_candle.get('open_price')
+                min_price = latest_candle.get('low_price')
+                max_price = latest_candle.get('high_price')
+                close_price = latest_candle.get('close_price')
+                current_price = close_price if close_price is not None else current_price
+
+            change_pct = float(result.predicted_change_percent or 0.0)
+            if change_pct >= 0.8:
+                signal = 'BUY'
+            elif change_pct <= -0.8:
+                signal = 'SELL'
+            else:
+                signal = 'HOLD'
+
             predictions.append(
                 {
                     'symbol': result.symbol,
@@ -153,11 +189,21 @@ class PortfolioViewSet(viewsets.ModelViewSet):
                     'slope': result.slope,
                     'intercept': result.intercept,
                     'latest_close': result.latest_close,
+                    'current_price': current_price,
+                    'open_price': open_price,
+                    'min_price': min_price,
+                    'max_price': max_price,
+                    'close_price': close_price,
                     'predicted_next_close': result.predicted_next_close,
+                    'lr_predict': result.predicted_next_close,
                     'predicted_change_percent': result.predicted_change_percent,
+                    'signal': signal,
                     'data_source': source,
                 }
             )
+
+        if lr_rows_to_create:
+            LinearRegressionResult.objects.bulk_create(lr_rows_to_create)
 
         return Response(
             {
@@ -784,6 +830,22 @@ class PortfolioViewSet(viewsets.ModelViewSet):
                     'market': requested_market,
                     'already_in_portfolio': True,
                 })
+        elif len(holding_candidates) < 3 and holdings.count() >= 3:
+            # Backfill from remaining holdings to always target top-3 picks when portfolio has enough stocks.
+            for h in holdings:
+                symbol = (h.stock.symbol or '').strip().upper()
+                if not symbol or symbol in seen:
+                    continue
+                seen.add(symbol)
+                holding_candidates.append({
+                    'symbol': symbol,
+                    'stock_name': h.stock.name,
+                    'sector': h.stock.sector or focus_sector,
+                    'market': requested_market,
+                    'already_in_portfolio': True,
+                })
+                if len(holding_candidates) >= 3:
+                    break
 
         candidates.extend(holding_candidates)
 

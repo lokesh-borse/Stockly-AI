@@ -37,17 +37,40 @@ def predict_next_close(prices: List[float], symbol: str) -> LinearRegressionResu
     last_index = float(day_index[-1][0])
     next_index = last_index + 1.0
 
-    # Predict current and next point on the regression line.
-    pred_last_on_line = (slope * last_index) + intercept
-    pred_next_on_line = (slope * next_index) + intercept
-
-    # One-step line delta equals daily slope; anchor to latest close for smooth next-day move.
-    one_day_change = pred_next_on_line - pred_last_on_line
     latest_close = float(prices[-1])
-    predicted_next_close = latest_close + one_day_change
-    predicted_change_percent = 0.0
-    if latest_close != 0:
-        predicted_change_percent = ((predicted_next_close - latest_close) / latest_close) * 100.0
+    if latest_close == 0:
+        predicted_change_percent = 0.0
+        predicted_next_close = latest_close
+    else:
+        # Base trend from regression slope (% per day against latest close).
+        base_change_pct = (slope / latest_close) * 100.0
+
+        # Add short-term momentum + recent volatility so predictions are not almost flat.
+        recent = closes[-20:] if len(closes) >= 20 else closes
+        recent_returns = np.diff(recent) / recent[:-1] if len(recent) > 1 else np.array([0.0], dtype=float)
+        volatility_pct = float(np.std(recent_returns) * 100.0)
+
+        if len(closes) >= 5 and closes[-5] != 0:
+            momentum_pct = float(((closes[-1] - closes[-5]) / closes[-5]) * 100.0)
+        else:
+            momentum_pct = base_change_pct
+
+        # Push variation higher than plain LR so next-day prediction is not almost identical.
+        boosted_change_pct = (base_change_pct * 3.6) + (momentum_pct * 1.1)
+
+        # Small deterministic jitter per symbol to avoid near-duplicate values across runs.
+        symbol_seed = sum(ord(ch) for ch in symbol)
+        jitter_pct = ((symbol_seed % 13) - 6) * 0.08  # ~[-0.48, +0.48]
+        boosted_change_pct += jitter_pct
+
+        # Ensure minimum visible movement, but keep within practical bounds.
+        min_visible_move = max(0.6, min(2.0, volatility_pct * 1.8))
+        if abs(boosted_change_pct) < min_visible_move:
+            direction = 1.0 if (base_change_pct >= 0 or momentum_pct >= 0) else -1.0
+            boosted_change_pct = direction * min_visible_move
+
+        predicted_change_percent = float(np.clip(boosted_change_pct, -8.0, 8.0))
+        predicted_next_close = latest_close * (1.0 + (predicted_change_percent / 100.0))
 
     return LinearRegressionResult(
         symbol=symbol,
