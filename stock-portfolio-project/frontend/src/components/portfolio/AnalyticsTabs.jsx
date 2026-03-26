@@ -418,8 +418,8 @@ export function GrowthTab({ growthData, loading }) {
   )
 }
 
-// ─── TAB 4 : AI Summary Report (Gemini Enhanced) ──────────────────────────────────
-// Gemini calls go through the Django backend proxy (/api/stocks/gemini/)
+// ─── TAB 4 : AI Summary Report (AI Enhanced) ──────────────────────────────────
+// AI calls are streamed from /api/chat/
 
 function renderSummaryMarkdown(text, baseColor = '#94a3b8') {
   return (text || '').split('\n').map((line, i) => {
@@ -445,13 +445,12 @@ function renderSummaryMarkdown(text, baseColor = '#94a3b8') {
 }
 
 export function SummaryTab({ summaryData, loading }) {
-  const [geminiReport, setGeminiReport] = useState(null)
-  const [geminiLoading, setGeminiLoading] = useState(false)
-  const [geminiError, setGeminiError] = useState('')
+  const [aiReport, setAiReport] = useState(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState('')
 
-  // Fetch Gemini insights once backend data is ready
   useEffect(() => {
-    if (!summaryData?.report || geminiReport || geminiLoading) return
+    if (!summaryData?.report || aiReport || aiLoading) return
 
     const prompt = `You are an expert financial analyst AI. A user's stock portfolio has been analysed using K-Means clustering. Here is the cluster summary report:
 
@@ -462,31 +461,79 @@ ${summaryData.report}
 Portfolio name: ${summaryData.portfolio_name || 'My Portfolio'}
 
 Based on this data, generate a rich, actionable AI insights report with the following sections:
-1. **Overall Portfolio Health** — 2-3 sentences on the overall risk/return balance
-2. **Key Risks to Watch** — bullet points for 2-3 specific risks based on the cluster data
-3. **Opportunities** — 2-3 actionable suggestions using the existing holdings
-4. **Diversification Score** — rate from 1-10 and explain briefly
-5. **Suggested Next Steps** — 2-3 concrete steps the investor can take
+1. Overall Portfolio Health - 2-3 sentences on the overall risk/return balance
+2. Key Risks to Watch - bullet points for 2-3 specific risks based on the cluster data
+3. Opportunities - 2-3 actionable suggestions using the existing holdings
+4. Diversification Score - rate from 1-10 and explain briefly
+5. Suggested Next Steps - 2-3 concrete steps the investor can take
 
 Keep the response concise (max 200 words), practical, and avoid repeating what's already in the report. End with a one-line SEBI disclaimer.`
 
-    setGeminiLoading(true)
-    api.post('stocks/gemini/', {
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      system_prompt: 'You are a concise, expert financial portfolio analyst focused on Indian equity markets. Format output with markdown headers and bullet points.',
-    })
-      .then(res => {
-        const text = res.data?.reply
-        if (text) setGeminiReport(text)
-        else setGeminiError('⚠️ Gemini returned an empty response.')
-      })
-      .catch(err => {
-        console.error('Gemini SummaryTab error:', err)
-        const detail = err?.response?.data?.detail || ''
-        setGeminiError(detail ? `⚠️ ${detail}` : '⚠️ Unable to fetch AI insights.')
-      })
-      .finally(() => setGeminiLoading(false))
-  }, [summaryData])
+    setAiLoading(true)
+
+    const run = async () => {
+      try {
+        const baseUrl = import.meta.env.VITE_API_BASE_URL
+        const access = localStorage.getItem('access')
+        const headers = { 'Content-Type': 'application/json' }
+        if (access) headers.Authorization = `Bearer ${access}`
+
+        const response = await fetch(`${baseUrl}chat/`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ messages: [{ role: 'user', content: prompt }] }),
+        })
+
+        if (!response.ok) {
+          const errPayload = await response.json().catch(() => null)
+          throw new Error(errPayload?.detail || 'Unable to fetch AI insights.')
+        }
+        if (!response.body) {
+          throw new Error('Streaming unavailable in this browser.')
+        }
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder('utf-8')
+        let buffer = ''
+        let text = ''
+
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+
+          let idx = buffer.indexOf('\n\n')
+          while (idx !== -1) {
+            const event = buffer.slice(0, idx)
+            buffer = buffer.slice(idx + 2)
+
+            for (const line of event.split('\n')) {
+              if (!line.startsWith('data: ')) continue
+              const payload = line.slice(6).trim()
+              if (payload === '[DONE]') continue
+              const parsed = JSON.parse(payload)
+              if (parsed?.text) {
+                text += parsed.text
+                setAiReport(text)
+              }
+            }
+            idx = buffer.indexOf('\n\n')
+          }
+        }
+
+        if (!text.trim()) {
+          setAiError('AI assistant returned an empty response.')
+        }
+      } catch (err) {
+        console.error('SummaryTab AI error:', err)
+        setAiError(err?.message || 'Unable to fetch AI insights.')
+      } finally {
+        setAiLoading(false)
+      }
+    }
+
+    run()
+  }, [summaryData, aiReport, aiLoading])
 
   if (loading) {
     return (
@@ -501,7 +548,6 @@ Keep the response concise (max 200 words), practical, and avoid repeating what's
   return (
     <div className="p-5 space-y-5 max-h-[580px] overflow-y-auto">
 
-      {/* ── Section A: Cluster Analysis ── */}
       <div style={{ background: '#0D1117', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, paddingBottom: 10, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <div style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(14,165,233,0.1)', border: '1px solid rgba(14,165,233,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>📊</div>
@@ -510,22 +556,19 @@ Keep the response concise (max 200 words), practical, and avoid repeating what's
         <div>{renderSummaryMarkdown(summaryData.report)}</div>
       </div>
 
-      {/* ── Section B: Gemini AI Insights ── */}
       <div style={{ borderLeft: '3px solid #38bdf8', paddingLeft: 0, borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(56,189,248,0.15)' }}>
-        {/* Card header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'rgba(56,189,248,0.04)', borderBottom: '1px solid rgba(56,189,248,0.1)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ width: 22, height: 22, borderRadius: 6, background: 'rgba(56,189,248,0.12)', border: '1px solid rgba(56,189,248,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>🤖</div>
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Gemini AI Insights</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>AI Insights</span>
           </div>
           <span style={{ fontSize: 10, color: '#38bdf8', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', padding: '2px 8px', borderRadius: 100 }}>
-            Powered by Gemini ✨
+            Stockly Assistant
           </span>
         </div>
 
-        {/* Content */}
         <div style={{ padding: 14, background: '#0a0e1a' }}>
-          {geminiLoading && (
+          {aiLoading && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[100, 85, 92, 70, 88].map((w, i) => (
                 <SkeletonBlock key={i} h="12px" w={`${w}%`} />
@@ -536,13 +579,13 @@ Keep the response concise (max 200 words), practical, and avoid repeating what's
               ))}
             </div>
           )}
-          {geminiError && !geminiLoading && (
-            <p style={{ fontSize: 12, color: '#ef4444' }}>{geminiError}</p>
+          {aiError && !aiLoading && (
+            <p style={{ fontSize: 12, color: '#ef4444' }}>{aiError}</p>
           )}
-          {geminiReport && !geminiLoading && (
-            <div>{renderSummaryMarkdown(geminiReport, '#94a3b8')}</div>
+          {aiReport && !aiLoading && (
+            <div>{renderSummaryMarkdown(aiReport, '#94a3b8')}</div>
           )}
-          {!geminiLoading && !geminiReport && !geminiError && (
+          {!aiLoading && !aiReport && !aiError && (
             <p style={{ fontSize: 12, color: '#475569', fontStyle: 'italic' }}>Generating AI insights...</p>
           )}
         </div>
@@ -550,8 +593,6 @@ Keep the response concise (max 200 words), practical, and avoid repeating what's
     </div>
   )
 }
-
-
 // ─── TAB 5 : Recommendations ─────────────────────────────────────────────────
 export function RecommendTab({ recommendData, loading, onAdd }) {
   if (loading) {
@@ -608,3 +649,5 @@ export function RecommendTab({ recommendData, loading, onAdd }) {
     </div>
   )
 }
+
+

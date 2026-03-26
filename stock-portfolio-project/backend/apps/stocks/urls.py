@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     StockViewSet, stocks_search, live_search, live_detail, historical,
-    stock_sentiment, stock_performance_5y, stock_summary_download, gemini_proxy,
+    stock_sentiment, stock_performance_5y, stock_summary_download, chat_stream,
     stock_catalog_list, recommended_portfolios, stock_universe
 )
 
@@ -27,6 +27,6 @@ urlpatterns = [
     path('stocks/sentiment/', stock_sentiment),
     path('stocks/performance-5y/', stock_performance_5y),
     path('stocks/download-summary/', stock_summary_download),
-    path('stocks/gemini/', gemini_proxy),
+    path('chat/', chat_stream),
     path('', include(router.urls)),
 ]

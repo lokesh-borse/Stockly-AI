@@ -44,9 +44,9 @@ ALLOWED_HOSTS = [h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '*').
 # Telegram bot token for sending OTP messages. Get yours from @BotFather.
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '').strip()
 
-# Gemini AI API key (used by the backend proxy endpoint)
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '').strip()
-GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash').strip()
+# Chat provider API keys
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '').strip()
+OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY', '').strip()
 
 
 
