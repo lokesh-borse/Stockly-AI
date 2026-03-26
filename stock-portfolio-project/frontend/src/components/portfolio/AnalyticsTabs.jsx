@@ -605,14 +605,17 @@ export function RecommendTab({ recommendData, loading, onAdd }) {
   if (!recommendData) return <div className="p-8 text-center text-neutral-500 text-sm">Recommendations not loaded.</div>
   if (recommendData.error) return <div className="p-4 text-xs text-loss-400">{recommendData.error}</div>
 
-  const recs = recommendData.recommendations || []
+  const recs = (recommendData.recommendations || []).slice(0, 3)
   if (!recs.length)
-    return <div className="p-8 text-center text-neutral-500 text-sm">No recommendations for your current sectors.</div>
+    return <div className="p-8 text-center text-neutral-500 text-sm">No top-quality recommendations found for this sector.</div>
 
   return (
     <div className="p-4">
       <p className="text-xs text-neutral-500 mb-4">
-        Stocks in your portfolio's sectors not yet added — based on your current holdings.
+        Sector: <span className="text-neutral-300 font-medium">{recommendData.focus_sector || 'Current Sector'}</span>
+        {' | '}Top picks: <span className="text-brand-400 font-medium">{recs.length}</span>
+        {' of '}<span className="text-neutral-300">{recommendData.candidate_count ?? recs.length}</span>
+        {' candidates (top 25% quality score).'}
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {recs.map(r => (
@@ -625,7 +628,7 @@ export function RecommendTab({ recommendData, loading, onAdd }) {
               </div>
               {r.current_price && (
                 <div className="text-sm font-bold font-mono text-brand-400">
-                  ₹{parseFloat(r.current_price).toFixed(2)}
+                  INR {parseFloat(r.current_price).toFixed(2)}
                 </div>
               )}
             </div>
@@ -634,14 +637,38 @@ export function RecommendTab({ recommendData, loading, onAdd }) {
               {r.pe_ratio && (
                 <span className="text-2xs text-neutral-600 bg-surface-700 px-1.5 py-0.5 rounded font-mono">P/E {r.pe_ratio}</span>
               )}
+              {r.quality_score !== undefined && (
+                <span className="text-2xs text-brand-300 bg-brand-500/10 border border-brand-500/20 px-1.5 py-0.5 rounded font-mono">
+                  Q {Number(r.quality_score).toFixed(1)}
+                </span>
+              )}
+              {r.signal && (
+                <span className={`text-2xs px-1.5 py-0.5 rounded border font-semibold ${
+                  r.signal === 'BUY'
+                    ? 'text-gain-400 bg-gain-500/10 border-gain-500/20'
+                    : r.signal === 'WATCH'
+                      ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+                      : 'text-loss-400 bg-loss-500/10 border-loss-500/20'
+                }`}>
+                  {r.signal}
+                </span>
+              )}
             </div>
             {r.reason && <p className="text-2xs text-neutral-600 mt-2 leading-relaxed">{r.reason}</p>}
-            {onAdd && (
+            <p className={`text-2xs mt-2 font-medium ${r.worth_buy ? 'text-gain-400' : 'text-amber-400'}`}>
+              Worth buying: {r.worth_buy ? 'Yes' : 'No (watchlist)'}
+            </p>
+            {onAdd && !r.already_in_portfolio && (
               <button onClick={() => onAdd(r.symbol)}
                 className="mt-3 w-full py-1.5 rounded text-xs font-medium text-brand-400 border border-brand-500/20 bg-brand-500/5
                   hover:bg-brand-500/15 hover:border-brand-500/40 transition-colors group-hover:border-brand-500/30">
                 + Add to Portfolio
               </button>
+            )}
+            {r.already_in_portfolio && (
+              <div className="mt-3 text-2xs text-neutral-500 border border-surface-700 rounded px-2 py-1 text-center">
+                Already in portfolio
+              </div>
             )}
           </div>
         ))}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef, lazy, Suspense } from 'react'
+import { useEffect, useMemo, useState, useRef, lazy, Suspense, Fragment } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { LinearScale, PointElement, Tooltip, Legend, Chart as ChartJS } from 'chart.js'
 import {
@@ -378,7 +378,12 @@ export default function PortfolioDetail() {
   async function loadRecommend(portfolioId) {
     if (!portfolioId) return
     setRecommendLoading(true)
-    try { setRecommendData(await fetchRecommendStocks(portfolioId)) }
+    try {
+      const params = {}
+      if (decodedSector) params.sector = decodedSector
+      if (decodedMarket) params.market = decodedMarket
+      setRecommendData(await fetchRecommendStocks(portfolioId, params))
+    }
     catch (e) { setRecommendData({ error: e?.response?.data?.detail || 'Failed' }) }
     finally { setRecommendLoading(false) }
   }
@@ -522,7 +527,7 @@ export default function PortfolioDetail() {
     setActiveTab(tab)
     if (tab === 'growth'  && !growthData)   loadGrowthAnalysis(activePortfolioId)
     if (tab === 'summary' && !summaryData)  loadSummary(activePortfolioId)
-    if (tab === 'reco'    && !recommendData) loadRecommend(activePortfolioId)
+    if (tab === 'reco') loadRecommend(activePortfolioId)
   }
 
   async function onRefreshAll() {
@@ -615,29 +620,80 @@ export default function PortfolioDetail() {
           {/* ═══════════════════════════════════════════════════════════════
               QUICK STATS ROW
           ═══════════════════════════════════════════════════════════════ */}
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: 'Current Value',  value: `₹${fmtINR(totals.current)}`,  color: 'brand' },
-              {
-                label: 'Best Performer',
-                value: totals.best?.symbol ?? '—',
-                sub: totals.best ? fmtPct(totals.best.pnlPct) : '',
-                color: 'gain',
-              },
-            ].map(card => {
-              const borderTop = { gain: '#22C55E', loss: '#EF4444', brand: '#0EA5E9' }[card.color]
-              const textColor = { gain: '#22C55E', loss: '#EF4444', brand: '#e2e8f0' }[card.color]
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+            {TABS.map(tab => {
+              const isActive = activeTab === tab.id
               return (
-                <div key={card.label}
-                  className="bg-surface-900 border border-surface-700 rounded-xl p-4 border-t-2"
-                  style={{ borderTopColor: borderTop }}>
-                  <div className="text-2xs uppercase tracking-widest text-neutral-500 mb-1">{card.label}</div>
-                  <div className="text-lg font-bold font-mono truncate" style={{ color: textColor }}>{card.value}</div>
-                  {card.sub && <div className="text-xs font-mono mt-0.5" style={{ color: textColor }}>{card.sub}</div>}
-                </div>
+                <button
+                  key={tab.id}
+                  onClick={() => toggleTab(tab.id)}
+                  className={`text-left bg-surface-900 border rounded-xl p-4 border-t-2 transition-all duration-150
+                    ${isActive
+                      ? 'border-brand-600 bg-brand-500/5'
+                      : 'border-surface-700 hover:border-brand-700/70 hover:bg-surface-800/80'}`}
+                  style={{ borderTopColor: isActive ? '#0EA5E9' : '#334155' }}
+                >
+                  <div className="text-2xs uppercase tracking-widest text-neutral-500 mb-1">
+                    {tab.label}
+                  </div>
+                  <div className={`text-base font-semibold truncate ${isActive ? 'text-brand-300' : 'text-neutral-200'}`}>
+                    {tab.icon} {tab.label}
+                  </div>
+                  <div className="text-2xs text-neutral-500 mt-1">
+                    Click to open analytics tab
+                  </div>
+                </button>
               )
             })}
           </div>
+
+          {/* ═══════════════════════════════════════════════════════════════
+              ANALYTICS TABS
+          ═══════════════════════════════════════════════════════════════ */}
+          <div className="bg-surface-900 border border-surface-700 rounded-xl overflow-hidden">
+            {/* Tab bar */}
+            <div className="flex overflow-x-auto border-b border-surface-700 no-scrollbar">
+              {TABS.map(tab => {
+                const isActive = activeTab === tab.id
+                return (
+                  <button key={tab.id} onClick={() => toggleTab(tab.id)}
+                    className={`flex items-center gap-1.5 px-4 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-all duration-150 flex-shrink-0
+                      ${isActive
+                        ? 'border-brand-500 text-brand-400 bg-brand-500/5'
+                        : 'border-transparent text-neutral-500 hover:text-neutral-300 hover:bg-surface-800'}`}>
+                    <span>{tab.icon}</span>
+                    {tab.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Tab content — lazy rendered with Suspense fallback */}
+            {activeTab && (
+              <div className="fade-up">
+                <Suspense fallback={
+                  <div className="p-6 space-y-3">
+                    {Array.from({length:4}).map((_,i) => (
+                      <Sk key={i} h="14px" className="rounded" w={i % 2 === 0 ? '80%' : '60%'} />
+                    ))}
+                  </div>
+                }>
+                  {activeTab === 'lr'      && <MLForecastTab lrData={lrData} loading={lrLoading} />}
+                  {activeTab === 'cluster' && <ClusterTab portfolioId={activePortfolioId} fetchFn={fetchPortfolioClusters} />}
+                  {activeTab === 'growth'  && <GrowthTab growthData={growthData} loading={growthLoading} />}
+                  {activeTab === 'summary' && <SummaryTab summaryData={summaryData} loading={summaryLoading} />}
+                  {activeTab === 'reco'    && <RecommendTab recommendData={recommendData} loading={recommendLoading} onAdd={onAdd} />}
+                </Suspense>
+              </div>
+            )}
+
+            {!activeTab && (
+              <div className="px-5 py-6 text-xs text-neutral-600">
+                Select a tab above to view analytics for this portfolio.
+              </div>
+            )}
+          </div>
+
 
           {/* ═══════════════════════════════════════════════════════════════
               HOLDINGS TABLE
@@ -739,8 +795,8 @@ export default function PortfolioDetail() {
                     }[s.signal] || null
 
                     return (
-                      <>
-                        <tr key={s.id ?? s.symbol}
+                      <Fragment key={s.id ?? s.symbol}>
+                        <tr
                           className="border-b border-surface-700/50 transition-colors duration-100 cursor-pointer"
                           style={{ background: expandedRow === s.symbol ? 'rgba(14,165,233,0.04)' : rowBg }}
                           onMouseEnter={e => e.currentTarget.style.background = 'rgba(14,165,233,0.04)'}
@@ -854,7 +910,7 @@ export default function PortfolioDetail() {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     )
                   })
                   }
@@ -909,53 +965,6 @@ export default function PortfolioDetail() {
                 )
               })}
             </div>
-          </div>
-
-          {/* ═══════════════════════════════════════════════════════════════
-              ANALYTICS TABS
-          ═══════════════════════════════════════════════════════════════ */}
-          <div className="bg-surface-900 border border-surface-700 rounded-xl overflow-hidden">
-            {/* Tab bar */}
-            <div className="flex overflow-x-auto border-b border-surface-700 no-scrollbar">
-              {TABS.map(tab => {
-                const isActive = activeTab === tab.id
-                return (
-                  <button key={tab.id} onClick={() => toggleTab(tab.id)}
-                    className={`flex items-center gap-1.5 px-4 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-all duration-150 flex-shrink-0
-                      ${isActive
-                        ? 'border-brand-500 text-brand-400 bg-brand-500/5'
-                        : 'border-transparent text-neutral-500 hover:text-neutral-300 hover:bg-surface-800'}`}>
-                    <span>{tab.icon}</span>
-                    {tab.label}
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Tab content — lazy rendered with Suspense fallback */}
-            {activeTab && (
-              <div className="fade-up">
-                <Suspense fallback={
-                  <div className="p-6 space-y-3">
-                    {Array.from({length:4}).map((_,i) => (
-                      <Sk key={i} h="14px" className="rounded" w={i % 2 === 0 ? '80%' : '60%'} />
-                    ))}
-                  </div>
-                }>
-                  {activeTab === 'lr'      && <MLForecastTab lrData={lrData} loading={lrLoading} />}
-                  {activeTab === 'cluster' && <ClusterTab portfolioId={activePortfolioId} fetchFn={fetchPortfolioClusters} />}
-                  {activeTab === 'growth'  && <GrowthTab growthData={growthData} loading={growthLoading} />}
-                  {activeTab === 'summary' && <SummaryTab summaryData={summaryData} loading={summaryLoading} />}
-                  {activeTab === 'reco'    && <RecommendTab recommendData={recommendData} loading={recommendLoading} onAdd={onAdd} />}
-                </Suspense>
-              </div>
-            )}
-
-            {!activeTab && (
-              <div className="px-5 py-6 text-xs text-neutral-600">
-                Select a tab above to view analytics for this portfolio.
-              </div>
-            )}
           </div>
 
         </div>{/* /container */}
