@@ -7,10 +7,29 @@ class PortfolioStockSerializer(serializers.ModelSerializer):
     symbol = serializers.CharField(source='stock.symbol', read_only=True)
     name = serializers.CharField(source='stock.name', read_only=True)
     pe_ratio = serializers.DecimalField(source='stock.pe_ratio', max_digits=10, decimal_places=2, required=False, allow_null=True)
+    current_price = serializers.SerializerMethodField()
+    week_52_high = serializers.DecimalField(source='stock._52_week_high', max_digits=14, decimal_places=2, required=False, allow_null=True)
+    week_52_low = serializers.DecimalField(source='stock._52_week_low', max_digits=14, decimal_places=2, required=False, allow_null=True)
+
+    def get_current_price(self, obj):
+        latest = obj.stock.prices.order_by('-date').first()
+        return float(latest.close_price) if latest else None
 
     class Meta:
         model = PortfolioStock
-        fields = ['id', 'stock_id', 'symbol', 'name', 'pe_ratio', 'quantity', 'purchase_price', 'purchase_date']
+        fields = [
+            'id',
+            'stock_id',
+            'symbol',
+            'name',
+            'pe_ratio',
+            'current_price',
+            'week_52_high',
+            'week_52_low',
+            'quantity',
+            'purchase_price',
+            'purchase_date',
+        ]
 
 class PortfolioSerializer(serializers.ModelSerializer):
     stocks = PortfolioStockSerializer(source='holdings', many=True, read_only=True)

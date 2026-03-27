@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 import math
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
@@ -898,11 +899,8 @@ class PortfolioViewSet(viewsets.ModelViewSet):
                 return 0.40
             return _clamp((math.log10(market_cap) - 8.0) / 4.0)
 
-        scored = []
-        for c in candidates[:40]:
-            symbol = c['symbol']
-            profile = get_stock_profile(symbol) or {}
-            quote = get_live_quote(symbol) or {}
+        def _score_candidate(candidate):
+            symbol = candidate['symbol']
             history = get_history(symbol, period='1y', interval='1d') or []
 
             closes = []
@@ -920,9 +918,9 @@ class PortfolioViewSet(viewsets.ModelViewSet):
                 if len(returns) > 1:
                     annual_volatility = float(np.std(returns) * np.sqrt(252))
 
-            pe_ratio = _safe_float(profile.get('pe_ratio'))
-            market_cap = _safe_float(profile.get('market_cap'))
-            dividend_yield = _safe_float(profile.get('dividend_yield'))
+            pe_ratio = _safe_float(candidate.get('pe_ratio'))
+            market_cap = _safe_float(candidate.get('market_cap'))
+            dividend_yield = _safe_float(candidate.get('dividend_yield'))
 
             return_score = _clamp(((one_year_return or 0.0) + 0.2) / 0.6)
             volatility_score = _clamp(1 - ((annual_volatility or 0.45) / 0.65))
@@ -945,13 +943,13 @@ class PortfolioViewSet(viewsets.ModelViewSet):
             else:
                 signal = 'AVOID'
 
-            scored.append({
+            return {
                 'symbol': symbol,
-                'name': profile.get('name') or c['stock_name'] or symbol,
-                'sector': c['sector'] or focus_sector,
-                'market': c['market'] or requested_market,
-                'already_in_portfolio': bool(c.get('already_in_portfolio')),
-                'current_price': _safe_float(quote.get('price')),
+                'name': candidate.get('stock_name') or symbol,
+                'sector': candidate.get('sector') or focus_sector,
+                'market': candidate.get('market') or requested_market,
+                'already_in_portfolio': bool(candidate.get('already_in_portfolio')),
+                'current_price': _safe_float(candidate.get('current_price')),
                 'pe_ratio': pe_ratio,
                 'market_cap': market_cap,
                 'dividend_yield': dividend_yield,
@@ -960,7 +958,20 @@ class PortfolioViewSet(viewsets.ModelViewSet):
                 'quality_score': round(quality * 100, 2),
                 'signal': signal,
                 'worth_buy': signal == 'BUY',
-            })
+            }
+
+        scored = []
+        sample = candidates[:40]
+        max_workers = min(8, max(1, len(sample)))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_map = [executor.submit(_score_candidate, c) for c in sample]
+            for future in as_completed(future_map):
+                try:
+                    item = future.result()
+                except Exception:
+                    continue
+                if item:
+                    scored.append(item)
 
         scored.sort(key=lambda x: (x['one_year_return_pct'], x['quality_score']), reverse=True)
         top_count = min(3, len(scored))
@@ -973,6 +984,27 @@ class PortfolioViewSet(viewsets.ModelViewSet):
                     f"1Y return {item['one_year_return_pct']:.2f}% and score {item['quality_score']:.2f}/100."
                 ),
             })
+
+        # Enrich only top picks with live/profile data to keep response fast.
+        for item in recommendations:
+            symbol = item['symbol']
+            profile = get_stock_profile(symbol) or {}
+            quote = get_live_quote(symbol) or {}
+
+            profile_name = profile.get('name')
+            if profile_name:
+                item['name'] = profile_name
+
+            live_price = _safe_float(quote.get('price'))
+            if live_price is not None:
+                item['current_price'] = live_price
+
+            if item.get('pe_ratio') is None:
+                item['pe_ratio'] = _safe_float(profile.get('pe_ratio'))
+            if item.get('market_cap') is None:
+                item['market_cap'] = _safe_float(profile.get('market_cap'))
+            if item.get('dividend_yield') is None:
+                item['dividend_yield'] = _safe_float(profile.get('dividend_yield'))
 
         rec_record = PortfolioRecommendations.objects.create(
             portfolio=portfolio,
