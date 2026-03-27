@@ -118,126 +118,138 @@ def _safe_float(value):
     return num if math.isfinite(num) else None
 
 
-def _parse_sector_market(description):
-    text = (description or '').strip()
-    match = re.search(r'auto-generated from stock_universe symbols in sector:\s*(.*?)\s*\((.*?)\)\s*$', text, flags=re.IGNORECASE)
-    if not match:
-        return '', ''
-    sector = (match.group(1) or '').strip()
-    market = (match.group(2) or '').strip()
-    return sector, market
+def _resolve_symbol_return_stats(symbol, symbol_stats):
+    existing = symbol_stats.get(symbol, {})
+    one_year_return_pct = _safe_float(existing.get('one_year_return_pct'))
+    current_price = _safe_float(existing.get('current_price'))
+    signal = str(existing.get('signal') or '').upper().strip()
 
-
-def _build_recommendations_for_portfolio(portfolio, market_label, sector_name):
-    holdings = portfolio.holdings.select_related('stock').all()
-    rows = []
-    for holding in holdings:
-        symbol = (holding.stock.symbol or '').strip().upper()
-        if not symbol:
-            continue
-
-        history = get_history(symbol, period='1y', interval='1d') or []
+    if one_year_return_pct is None:
+        history = get_history(symbol, period='1y', interval='1wk') or []
         closes = []
         for item in history:
             close_val = _safe_float(item.get('close_price'))
             if close_val is not None:
                 closes.append(close_val)
 
-        if len(closes) < 2 or closes[0] <= 0:
-            continue
+        if len(closes) >= 2 and closes[0] > 0:
+            one_year_return_pct = ((closes[-1] / closes[0]) - 1.0) * 100.0
+            if current_price is None:
+                current_price = closes[-1]
+        else:
+            one_year_return_pct = 0.0
 
-        one_year_return_pct = ((closes[-1] / closes[0]) - 1.0) * 100.0
-        live = get_live_quote(symbol) or {}
-        current_price = _safe_float(live.get('price'))
-        rows.append({
+    if signal not in {'BUY', 'WATCH', 'HOLD', 'AVOID', 'SELL'}:
+        signal = 'BUY' if one_year_return_pct > 0 else 'HOLD'
+
+    # Memoize per request so repeated symbols don't trigger duplicate history calls.
+    symbol_stats[symbol] = {
+        'one_year_return_pct': one_year_return_pct,
+        'current_price': current_price,
+        'signal': signal,
+    }
+    return symbol_stats[symbol]
+
+
+def _build_shared_recommendations_for_sector(market_label, sector_name, catalog_rows, symbol_stats=None):
+    symbol_stats = symbol_stats or {}
+
+    picks = []
+    seen = set()
+    for row in catalog_rows:
+        symbol = (row.symbol or '').strip().upper()
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        picks.append(row)
+        if len(picks) >= 3:
+            break
+
+    recommendations = []
+    for row in picks:
+        symbol = (row.symbol or '').strip().upper()
+        stats = _resolve_symbol_return_stats(symbol, symbol_stats)
+        one_year_return_pct = _safe_float(stats.get('one_year_return_pct')) or 0.0
+        current_price = _safe_float(stats.get('current_price'))
+        signal = str(stats.get('signal') or 'HOLD').upper().strip()
+
+        recommendations.append({
             'symbol': symbol,
-            'name': holding.stock.name or symbol,
-            'sector': sector_name or holding.stock.sector or '',
+            'name': row.stock_name or symbol,
+            'sector': sector_name,
             'market': market_label,
             'current_price': current_price,
             'one_year_return_pct': round(one_year_return_pct, 2),
-            'worth_buy': one_year_return_pct > 0,
-            'signal': 'BUY' if one_year_return_pct > 0 else 'HOLD',
+            'worth_buy': signal == 'BUY',
+            'signal': signal,
+            'reason': (
+                f"Top pick in {sector_name}. "
+                f"1Y return {one_year_return_pct:.2f}% based on latest shared analytics."
+            ),
         })
 
-    rows.sort(key=lambda x: x['one_year_return_pct'], reverse=True)
-    top = rows[:3]
-    for row in top:
-        row['reason'] = (
-            f"Top return pick in {sector_name}. "
-            f"1Y return {row['one_year_return_pct']:.2f}%."
-        )
-    return top
+    return recommendations
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def quality_recommendations(request):
     market_param = (request.query_params.get('market') or '').strip()
+    cache_suffix = market_param.lower() if market_param else 'all'
+    cache_key = f"quality_recommendations:v4:{cache_suffix}"
+
+    cached_response = cache.get(cache_key)
+    if cached_response is not None:
+        return Response(cached_response)
+
+    # Reuse latest recommendation stats globally so all users see identical results quickly.
+    symbol_stats = {}
+    latest_recs = PortfolioRecommendations.objects.order_by('-created_at')[:200]
+    for rec in latest_recs:
+        entries = rec.recommendations if isinstance(rec.recommendations, list) else []
+        for item in entries:
+            if not isinstance(item, dict):
+                continue
+            symbol = (item.get('symbol') or '').strip().upper()
+            if not symbol or symbol in symbol_stats:
+                continue
+            symbol_stats[symbol] = {
+                'one_year_return_pct': item.get('one_year_return_pct'),
+                'current_price': item.get('current_price'),
+                'signal': item.get('signal'),
+            }
 
     catalog_qs = StockCatalog.objects.all()
     if market_param:
         catalog_qs = catalog_qs.filter(market__iexact=market_param)
 
-    sectors_by_market = defaultdict(set)
-    for row in catalog_qs.only('market', 'sector'):
+    catalog_rows = list(catalog_qs.only('market', 'sector', 'symbol', 'stock_name').order_by('market', 'sector', 'stock_name'))
+    sectors_by_market = defaultdict(lambda: defaultdict(list))
+    for row in catalog_rows:
         market_name = (row.market or '').strip()
         sector_name = (row.sector or '').strip()
         if market_name and sector_name:
-            sectors_by_market[market_name].add(sector_name)
-
-    user_portfolios = Portfolio.objects.filter(user=request.user).only('id', 'name', 'description')
-    portfolio_key_map = {}
-    for portfolio in user_portfolios:
-        sector_name, market_name = _parse_sector_market(portfolio.description)
-        if not sector_name or not market_name:
-            continue
-        key = (market_name.lower(), sector_name.lower())
-        portfolio_key_map[key] = portfolio
+            sectors_by_market[market_name][sector_name].append(row)
 
     response_markets = []
     for market_name in sorted(sectors_by_market.keys(), key=lambda m: m.lower()):
         sector_rows = []
         for sector_name in sorted(sectors_by_market[market_name], key=lambda s: s.lower()):
-            portfolio = portfolio_key_map.get((market_name.lower(), sector_name.lower()))
-            recommendations = []
-            from_db = False
-
-            if portfolio:
-                rec = (
-                    PortfolioRecommendations.objects
-                    .filter(portfolio=portfolio)
-                    .order_by('-created_at')
-                    .first()
-                )
-                if rec and isinstance(rec.recommendations, list) and rec.recommendations:
-                    recommendations = sorted(
-                        rec.recommendations,
-                        key=lambda item: _safe_float((item or {}).get('one_year_return_pct')) or 0.0,
-                        reverse=True,
-                    )[:3]
-                    from_db = True
-                else:
-                    recommendations = _build_recommendations_for_portfolio(
-                        portfolio=portfolio,
-                        market_label=market_name,
-                        sector_name=sector_name,
-                    )
-                    if recommendations:
-                        PortfolioRecommendations.objects.create(
-                            portfolio=portfolio,
-                            reason=f'Sector quality recommendations for {sector_name}',
-                            recommendations=recommendations,
-                            portfolio_sectors=[sector_name],
-                        )
+            sector_catalog_rows = sectors_by_market[market_name][sector_name]
+            recommendations = _build_shared_recommendations_for_sector(
+                market_label=market_name,
+                sector_name=sector_name,
+                catalog_rows=sector_catalog_rows,
+                symbol_stats=symbol_stats,
+            )
 
             sector_rows.append({
                 'sector': sector_name,
                 'market': market_name,
-                'portfolio_id': portfolio.id if portfolio else None,
+                'portfolio_id': None,
                 'selected_count': len(recommendations),
                 'recommendations': recommendations,
-                'from_db': from_db,
+                'from_db': False,
             })
 
         response_markets.append({
@@ -246,10 +258,14 @@ def quality_recommendations(request):
             'sectors': sector_rows,
         })
 
-    return Response({
+    response_payload = {
         'total_markets': len(response_markets),
         'markets': response_markets,
-    })
+    }
+
+    # Shared cache so all users get the same precomputed quality cards.
+    cache.set(cache_key, response_payload, 3600)
+    return Response(response_payload)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
