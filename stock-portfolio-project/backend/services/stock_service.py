@@ -1,6 +1,7 @@
 import yfinance as yf
 import math
 from datetime import date
+from django.core.cache import cache
 
 def _clean_number(value):
     if value is None:
@@ -63,13 +64,22 @@ def search_symbols(query: str, limit: int = 10):
         return []
 
 def get_stock_profile(symbol: str):
+    symbol = (symbol or "").strip().upper()
+    if not symbol:
+        return None
+
+    cache_key = f"stock_profile:{symbol}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         ticker = yf.Ticker(symbol)
         info = ticker.get_info() or {}
         fast = getattr(ticker, "fast_info", {}) or {}
         name = info.get("shortName") or info.get("longName") or symbol
         pe_ratio = info.get("trailingPE") if info.get("trailingPE") is not None else info.get("forwardPE")
-        return {
+        profile = {
             "symbol": symbol,
             "name": name,
             "sector": info.get("sector") or "",
@@ -80,13 +90,21 @@ def get_stock_profile(symbol: str):
             "52_week_high": _clean_number(info.get("fiftyTwoWeekHigh") or fast.get("yearHigh")),
             "52_week_low": _clean_number(info.get("fiftyTwoWeekLow") or fast.get("yearLow")),
         }
+        cache.set(cache_key, profile, 1800)
+        return profile
     except Exception:
+        cache.set(cache_key, None, 60)
         return None
 
 def get_live_quote(symbol: str):
     symbol = (symbol or "").strip().upper()
     if not symbol:
         return None
+
+    cache_key = f"live_quote:{symbol}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     def _persist_live_price(symbol_value: str, live_price: float, live_volume: int | None):
         try:
@@ -161,15 +179,28 @@ def get_live_quote(symbol: str):
         price = float(price_val)
         volume = int(volume_val) if volume_val is not None else 0
         _persist_live_price(symbol, price, volume)
-        return {"symbol": symbol, "price": price, "change": None, "volume": volume}
+        quote = {"symbol": symbol, "price": price, "change": None, "volume": volume}
+        cache.set(cache_key, quote, 15)
+        return quote
     except Exception:
+        cache.set(cache_key, None, 10)
         return None
 
 def get_history(symbol: str, period: str = "1y", interval: str = "1d"):
+    symbol = (symbol or "").strip().upper()
+    if not symbol:
+        return []
+
+    cache_key = f"history:{symbol}:{period}:{interval}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         df = yf.download(symbol, period=period, interval=interval, progress=False, threads=False)
         df = _normalize_ohlcv_df(df, symbol)
         if df is None or df.empty:
+            cache.set(cache_key, [], 120)
             return []
         out = []
         for idx, row in df.iterrows():
@@ -188,6 +219,8 @@ def get_history(symbol: str, period: str = "1y", interval: str = "1d"):
                 "low_price": float(low_v) if low_v is not None else float(close_v),
                 "volume": int(volume_v) if volume_v is not None else 0,
             })
+        cache.set(cache_key, out, 300)
         return out
     except Exception:
+        cache.set(cache_key, [], 60)
         return []

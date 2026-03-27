@@ -2,7 +2,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { LinearScale, PointElement, Tooltip, Legend, Chart as ChartJS } from 'chart.js'
 import {
-  addStockToPortfolio, createPortfolio, fetchHistoricalBySymbol, fetchLiveStockBySymbol,
+  addStockToPortfolio, createPortfolio,
   fetchPortfolioById, fetchPortfolioLinearRegression, fetchPortfolioLogisticRegression,
   fetchPortfolioClusters, fetchGrowthAnalysis, fetchPortfolioRating,
   fetchSummaryReport, fetchRecommendStocks, fetchRecommendedPortfolios,
@@ -397,9 +397,14 @@ export default function PortfolioDetail() {
   useEffect(() => { loadPortfolio() }, [id, isRecommendedView, decodedMarket, decodedSector])
   useEffect(() => {
     if (!activePortfolioId) return
-    loadLinearRegression(activePortfolioId)
-    loadLogisticRegression(activePortfolioId)
     loadRating(activePortfolioId)
+
+    // Defer heavy ML calls so the page becomes interactive sooner.
+    const t = setTimeout(() => {
+      loadLinearRegression(activePortfolioId)
+      loadLogisticRegression(activePortfolioId)
+    }, 1200)
+    return () => clearTimeout(t)
   }, [activePortfolioId])
 
   // â”€â”€ Debounced stock search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -412,34 +417,20 @@ export default function PortfolioDetail() {
     return () => clearTimeout(t)
   }, [query])
 
-  // â”€â”€ Load live price + 52W range per stock â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â”€â”€ Build metrics from lightweight portfolio payload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
-    async function loadHistory() {
-      if (!portfolio?.stocks?.length) { setMetricsMap({}); return }
-      const pairs = await Promise.all(
-        portfolio.stocks.map(async (s) => {
-          try {
-            const [live, d] = await Promise.all([
-              fetchLiveStockBySymbol(s.symbol).catch(() => null),
-              fetchHistoricalBySymbol(s.symbol, '1y', '1d'),
-            ])
-            const prices = d?.prices || []
-            const livePrice = Number(live?.price)
-            const lastLive = Number.isFinite(livePrice) ? livePrice : null
-            if (!prices.length) return [s.symbol, { last: lastLive, min365: null, max365: null }]
-            const closes = prices.map(p => Number(p.close_price)).filter(v => Number.isFinite(v))
-            if (!closes.length) return [s.symbol, { last: lastLive, min365: null, max365: null }]
-            return [s.symbol, {
-              last: lastLive ?? closes[closes.length - 1],
-              min365: Math.min(...closes),
-              max365: Math.max(...closes),
-            }]
-          } catch { return [s.symbol, { last: null, min365: null, max365: null }] }
-        })
-      )
-      setMetricsMap(Object.fromEntries(pairs))
+    if (!portfolio?.stocks?.length) {
+      setMetricsMap({})
+      return
     }
-    loadHistory()
+
+    const pairs = portfolio.stocks.map((s) => {
+      const last = toFin(s.current_price)
+      const min365 = toFin(s.week_52_low)
+      const max365 = toFin(s.week_52_high)
+      return [s.symbol, { last, min365, max365 }]
+    })
+    setMetricsMap(Object.fromEntries(pairs))
   }, [portfolio])
 
   // â”€â”€ Memoised lookups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -531,9 +522,13 @@ export default function PortfolioDetail() {
   function toggleTab(tab) {
     if (activeTab === tab) { setActiveTab(null); return }
     setActiveTab(tab)
+    if (tab === 'lr') {
+      if (!lrData) loadLinearRegression(activePortfolioId)
+      if (!logData) loadLogisticRegression(activePortfolioId)
+    }
     if (tab === 'growth'  && !growthData)   loadGrowthAnalysis(activePortfolioId)
     if (tab === 'summary' && !summaryData)  loadSummary(activePortfolioId)
-    if (tab === 'reco') loadRecommend(activePortfolioId)
+    if (tab === 'reco' && !recommendData) loadRecommend(activePortfolioId)
   }
 
   function onRecommendAdd(symbol) {
